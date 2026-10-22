@@ -19,7 +19,9 @@ import {
   UserIcon,
   TagIcon,
   RefreshCwIcon,
-  ShieldCheckIcon
+  ShieldCheckIcon,
+  MenuIcon,
+  CloseIcon
 } from './components/icons';
 import {
   ROLE_LABELS,
@@ -39,7 +41,8 @@ import {
   groupAppointmentsByPatient,
   exportFinancialCsv,
   exportFinancialExcel,
-  exportTherapistExcel
+  exportTherapistExcel,
+  exportPsychologistExcel
 } from './lib/helpers';
 
 export default function App() {
@@ -127,7 +130,7 @@ export default function App() {
     visitNumber: 1,
     assignedPsychologist: LIST_PSIKOLOG[0].label,
     directTherapist: '',
-    directTherapyMethod: 'Play and Grow',
+    directTherapyMethod: 'Terapi Anak Spesial',
     handleBy: ADMIN_HANDLERS[0],
     paymentMethod: PAYMENT_METHODS[0],
     bookingDate: new Date().toISOString().slice(0, 10),
@@ -155,6 +158,7 @@ export default function App() {
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [receiptType, setReceiptType] = useState('invoice');
   const [showEditModal, setShowEditModal] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // ============================================================
   // 7. ROLE & PRIVILEGE CHECKS (MENDUKUNG SIMULATOR MASTER)
@@ -804,8 +808,9 @@ export default function App() {
             </div>
 
             {/* USER INFO, SWITCH VIEW, & EXPORT ACTIONS */}
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="text-right hidden sm:block mr-1">
+            {/* USER INFO, SWITCH VIEW, & EXPORT ACTIONS (DESKTOP) */}
+            <div className="hidden lg:flex items-center gap-2">
+              <div className="text-right mr-1">
                 <p className="text-xs font-bold text-gray-900">{activeName}</p>
                 <span className="inline-block px-2.5 py-0.5 text-[10px] font-bold rounded-full bg-[#701A24]/10 text-[#701A24] uppercase tracking-wider">
                   Role: {ROLE_LABELS[activeRole] || activeRole}
@@ -813,11 +818,11 @@ export default function App() {
               </div>
 
               {/* FITUR KHUSUS MASTER: KONTROL BACKUP DATABASE */}
-              {hasMasterAccess && (
+              {hasMasterAccess && !simulationPersona && (
                 <button
                   type="button"
                   onClick={handleBackupDatabase}
-                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white font-semibold rounded-xl text-xs transition shadow-xs flex items-center gap-1.5"
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white font-semibold rounded-xl text-xs transition shadow-xs flex items-center gap-1.5 active:scale-95"
                   title="Ekspor Snapshot Data appointments & profiles ke file .json"
                 >
                   <DownloadIcon className="w-3.5 h-3.5 text-slate-300" />
@@ -860,7 +865,7 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => exportFinancialExcel(appointmentsList)}
-                    className="px-3 py-1.5 bg-[#701A24] hover:bg-[#54121B] text-white font-semibold rounded-xl text-xs transition shadow-xs flex items-center gap-1.5"
+                    className="px-3 py-1.5 bg-[#701A24] hover:bg-[#54121B] text-white font-semibold rounded-xl text-xs transition shadow-xs flex items-center gap-1.5 active:scale-95"
                     title="Export Rekap Keuangan Bulanan ke Excel (.xls)"
                   >
                     <DownloadIcon className="w-3.5 h-3.5" />
@@ -870,13 +875,33 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => exportFinancialCsv(appointmentsList)}
-                    className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-semibold rounded-xl text-xs transition shadow-xs flex items-center gap-1.5 hidden md:flex"
+                    className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-semibold rounded-xl text-xs transition shadow-xs flex items-center gap-1.5 active:scale-95 hidden md:flex"
                     title="Export Rekap Keuangan ke file .CSV"
                   >
                     <DownloadIcon className="w-3.5 h-3.5" />
                     <span>CSV</span>
                   </button>
                 </div>
+              )}
+
+              {/* REKAP KONSELING EXCEL (KHUSUS PSIKOLOG) */}
+              {hasPsychologistAccess && !hasAdminAccess && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const myPatients = appointmentsList.filter((item) => {
+                      const docLower = (item.doctor_name || '').toLowerCase();
+                      const nameLower = activeName.toLowerCase();
+                      return docLower.includes(nameLower) || LIST_PSIKOLOG.some((p) => p.keywords.some((k) => nameLower.includes(k) && docLower.includes(k)));
+                    });
+                    exportPsychologistExcel(myPatients.length > 0 ? myPatients : appointmentsList, activeName);
+                  }}
+                  className="px-3 py-1.5 bg-[#701A24] hover:bg-[#54121B] text-white font-semibold rounded-xl text-xs transition shadow-xs flex items-center gap-1.5 active:scale-95"
+                  title="Download Rekap Konseling & Evaluasi Psikolog ke Excel (.xlsx)"
+                >
+                  <DownloadIcon className="w-3.5 h-3.5" />
+                  <span>Download Rekap (.xlsx)</span>
+                </button>
               )}
 
               {/* EXPORT MEDIS TERAPIS (KHUSUS TERAPIS) */}
@@ -889,11 +914,11 @@ export default function App() {
                     );
                     exportTherapistExcel(myPatients, activeName);
                   }}
-                  className="px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white font-semibold rounded-xl text-xs transition shadow-xs flex items-center gap-1.5"
-                  title="Download Rekap Progress Pasien Terapis"
+                  className="px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white font-semibold rounded-xl text-xs transition shadow-xs flex items-center gap-1.5 active:scale-95"
+                  title="Download Rekap Progress Pasien Terapis (.xlsx)"
                 >
                   <DownloadIcon className="w-3.5 h-3.5" />
-                  <span>Excel Medis Saya</span>
+                  <span>Download Rekap (.xlsx)</span>
                 </button>
               )}
 
@@ -904,13 +929,170 @@ export default function App() {
                   setSimulationPersona(null);
                   navigateTo('/');
                 }}
-                className="px-3 py-1.5 bg-white hover:bg-red-50 text-gray-700 hover:text-red-700 font-semibold rounded-xl text-xs transition border border-[#EADFD5] shadow-xs"
+                className="px-3 py-1.5 bg-white hover:bg-red-50 text-gray-700 hover:text-red-700 font-semibold rounded-xl text-xs transition border border-[#EADFD5] shadow-xs active:scale-95"
               >
                 Keluar
               </button>
             </div>
 
+            {/* MOBILE HAMBURGER MENU BUTTON (☰) - KHUSUS LAYAR HP */}
+            <div className="flex items-center gap-2 lg:hidden">
+              <span className="px-2 py-0.5 text-[9px] font-bold rounded-full bg-[#701A24]/10 text-[#701A24] uppercase">
+                {ROLE_LABELS[activeRole] || activeRole}
+              </span>
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                className="p-2 rounded-xl border border-[#EADFD5] bg-white text-gray-700 hover:text-[#701A24] hover:bg-[#FAF8F5] transition active:scale-95 shadow-2xs"
+                title="Buka Menu Manajemen"
+              >
+                {mobileMenuOpen ? <CloseIcon className="w-5 h-5" /> : <MenuIcon className="w-5 h-5" />}
+              </button>
+            </div>
+
           </div>
+
+          {/* MOBILE DRAWER / DROPDOWN ACTIONS */}
+          {mobileMenuOpen && (
+            <div className="lg:hidden border-t border-[#EADFD5] bg-white/98 backdrop-blur-md px-6 py-4 space-y-3.5 shadow-lg animate-fade-up print:hidden">
+              <div className="flex items-center justify-between pb-2.5 border-b border-gray-100">
+                <div>
+                  <p className="text-xs font-bold text-gray-900">{activeName}</p>
+                  <p className="text-[10px] text-gray-500 font-medium">Role: {ROLE_LABELS[activeRole] || activeRole}</p>
+                </div>
+                <span className="px-2.5 py-0.5 text-[10px] font-bold rounded-full bg-[#701A24]/10 text-[#701A24]">
+                  Klinik Benang Merah
+                </span>
+              </div>
+
+              {/* FITUR KHUSUS MASTER DI MOBILE */}
+              {hasMasterAccess && (
+                <div className="space-y-2 pt-1">
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Akses Master IT:</p>
+                  <select
+                    value={simulationPersona ? `${simulationPersona.role}:${simulationPersona.name}` : 'default'}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === 'default') {
+                        setSimulationPersona(null);
+                      } else {
+                        const [role, name] = val.split(':');
+                        setSimulationPersona({ role, name });
+                      }
+                      setMobileMenuOpen(false);
+                    }}
+                    className="w-full px-3 py-2 bg-amber-50 text-amber-900 border border-amber-300 rounded-xl text-xs font-bold outline-none"
+                  >
+                    <option value="default">🔍 Switch View (Master IT)</option>
+                    <option value="admin:Fauzan Hamdani">View as: Admin (Fauzan)</option>
+                    <option value="terapis:Shima Adinda Salsabil">View as: Terapis (Shima)</option>
+                    <option value="psikolog:M. Azka Maulana, M.Psi., Psikolog">View as: Psikolog (Pak Azka)</option>
+                    <option value="psikolog:Sofia Halida Fatma, M.Psi., Psikolog">View as: Psikolog (Bu Sofia)</option>
+                    <option value="terapis:Silviyah Wulandari">View as: Terapis (Silvi)</option>
+                    <option value="terapis:Nadifah AM">View as: Terapis (Difa)</option>
+                    <option value="terapis:Eka Zahra Nabila Nakhwa">View as: Terapis (Eka)</option>
+                  </select>
+
+                  {!simulationPersona && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleBackupDatabase();
+                        setMobileMenuOpen(false);
+                      }}
+                      className="w-full px-3 py-2 bg-slate-800 hover:bg-slate-900 text-white font-semibold rounded-xl text-xs transition flex items-center justify-center gap-2 shadow-xs active:scale-95"
+                    >
+                      <DownloadIcon className="w-3.5 h-3.5 text-slate-300" />
+                      <span>Backup DB Snapshot (.json)</span>
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* EKSPOR DATA BERDASARKAN ROLE DI MOBILE */}
+              <div className="space-y-2 pt-1">
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Ekspor Data & Rekap:</p>
+                {hasAdminAccess && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        exportFinancialExcel(appointmentsList);
+                        setMobileMenuOpen(false);
+                      }}
+                      className="px-3 py-2 bg-[#701A24] text-white font-semibold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-xs active:scale-95"
+                    >
+                      <DownloadIcon className="w-3.5 h-3.5" />
+                      <span>Export Excel</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        exportFinancialCsv(appointmentsList);
+                        setMobileMenuOpen(false);
+                      }}
+                      className="px-3 py-2 bg-emerald-700 text-white font-semibold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-xs active:scale-95"
+                    >
+                      <DownloadIcon className="w-3.5 h-3.5" />
+                      <span>CSV</span>
+                    </button>
+                  </div>
+                )}
+
+                {hasPsychologistAccess && !hasAdminAccess && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const myPatients = appointmentsList.filter((item) => {
+                        const docLower = (item.doctor_name || '').toLowerCase();
+                        const nameLower = activeName.toLowerCase();
+                        return docLower.includes(nameLower) || LIST_PSIKOLOG.some((p) => p.keywords.some((k) => nameLower.includes(k) && docLower.includes(k)));
+                      });
+                      exportPsychologistExcel(myPatients.length > 0 ? myPatients : appointmentsList, activeName);
+                      setMobileMenuOpen(false);
+                    }}
+                    className="w-full px-3 py-2 bg-[#701A24] text-white font-semibold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-xs active:scale-95"
+                  >
+                    <DownloadIcon className="w-3.5 h-3.5" />
+                    <span>Download Rekap (.xlsx)</span>
+                  </button>
+                )}
+
+                {hasTherapistAccess && !hasAdminAccess && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const myPatients = appointmentsList.filter((item) =>
+                        matchesTherapistAssignment(item.assigned_terapis, activeName)
+                      );
+                      exportTherapistExcel(myPatients, activeName);
+                      setMobileMenuOpen(false);
+                    }}
+                    className="w-full px-3 py-2 bg-blue-700 text-white font-semibold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-xs active:scale-95"
+                  >
+                    <DownloadIcon className="w-3.5 h-3.5" />
+                    <span>Download Rekap Medis (.xlsx)</span>
+                  </button>
+                )}
+              </div>
+
+              {/* LOGOUT BUTTON DI MOBILE */}
+              <div className="pt-2 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setMobileMenuOpen(false);
+                    await supabase.auth.signOut();
+                    setSimulationPersona(null);
+                    navigateTo('/');
+                  }}
+                  className="w-full py-2 bg-red-50 hover:bg-red-100 text-red-700 font-bold rounded-xl text-xs flex items-center justify-center gap-2 border border-red-200 transition active:scale-95"
+                >
+                  Keluar dari Dashboard
+                </button>
+              </div>
+            </div>
+          )}
         </header>
 
         {/* ISI DASHBOARD UTAMA */}
@@ -967,15 +1149,38 @@ export default function App() {
             </div>
           </div>
 
-          {/* LAYOUT 2 KOLOM: DAFTAR PASIEN DI KIRI & FORM STICKY DI KANAN */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start print:block">
-            
-            {/* ======================================================== */}
-            {/* KOLOM KIRI: DAFTAR PASIEN, TAB, & FILTER TANGGAL */}
-            {/* ======================================================== */}
-            <div className={`${hasAdminAccess ? 'lg:col-span-7 xl:col-span-8' : 'lg:col-span-12'} space-y-6 print:border-none print:p-0`}>
-              
-              <div className="bg-white p-6 rounded-3xl border border-[#EADFD5] shadow-sm">
+          {/* LAYOUT 2 KOLOM RESPONSIF: MOBILE-FIRST */}
+          {/* Pada Mobile: Form Pendaftaran tampil PALING ATAS, List Pasien di bawahnya */}
+          {/* Pada Desktop (lg+): Form di KANAN, List di KIRI */}
+          <div className="flex flex-col lg:grid lg:grid-cols-12 gap-8 items-start print:block">
+
+            {/* ================================================================ */}
+            {/* KOLOM FORM (MOBILE: order-1 = PALING ATAS | DESKTOP: col kanan) */}
+            {/* ================================================================ */}
+            {hasAdminAccess && (
+              <div className="w-full order-1 lg:order-2 lg:col-span-5 xl:col-span-4 print:hidden">
+                <PatientForm
+                  formData={formData}
+                  setFormData={setFormData}
+                  onSubmit={handleRegisterPatient}
+                  submitting={submitting}
+                  bookingMsg={bookingMsg}
+                  checkingVoucher={checkingVoucher}
+                  onApplyVoucher={handleApplyVoucher}
+                  voucherMsg={voucherMsg}
+                  activeTherapistList={activeTherapistList}
+                  voucherUsedCount={voucherUsedCount}
+                  maxVoucherQuota={MAX_OPENING_VOUCHER_QUOTA}
+                />
+              </div>
+            )}
+
+            {/* ================================================================ */}
+            {/* KOLOM LIST PASIEN (MOBILE: order-2 = di bawah form | DESKTOP: col kiri) */}
+            {/* ================================================================ */}
+            <div className={`w-full order-2 lg:order-1 ${hasAdminAccess ? 'lg:col-span-7 xl:col-span-8' : 'lg:col-span-12'} space-y-6 print:border-none print:p-0`}>
+
+              <div className="bg-white p-5 sm:p-6 rounded-3xl border border-[#EADFD5] shadow-sm">
                 
                 {/* 1. NAVIGASI TAB UTAMA */}
                 <div className="flex flex-wrap gap-2 mb-6 border-b border-[#EADFD5] pb-4">
@@ -1069,6 +1274,7 @@ export default function App() {
                         patientGroup={group}
                         userRole={activeRole}
                         userName={activeName}
+                        hasMasterAccess={hasMasterAccess}
                         hasAdminAccess={hasAdminAccess}
                         hasPsychologistAccess={hasPsychologistAccess}
                         hasTherapistAccess={hasTherapistAccess}
@@ -1088,27 +1294,6 @@ export default function App() {
               </div>
 
             </div>
-
-            {/* ======================================================== */}
-            {/* KOLOM KANAN: FORM INPUT PASIEN STICKY (ADMIN) */}
-            {/* ======================================================== */}
-            {hasAdminAccess && (
-              <div className="lg:col-span-5 xl:col-span-4 print:hidden">
-                <PatientForm
-                  formData={formData}
-                  setFormData={setFormData}
-                  onSubmit={handleRegisterPatient}
-                  submitting={submitting}
-                  bookingMsg={bookingMsg}
-                  checkingVoucher={checkingVoucher}
-                  onApplyVoucher={handleApplyVoucher}
-                  voucherMsg={voucherMsg}
-                  activeTherapistList={activeTherapistList}
-                  voucherUsedCount={voucherUsedCount}
-                  maxVoucherQuota={MAX_OPENING_VOUCHER_QUOTA}
-                />
-              </div>
-            )}
 
           </div>
 

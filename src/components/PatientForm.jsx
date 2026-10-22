@@ -250,9 +250,10 @@ export default function PatientForm({
                   onChange={(e) => handleChange('directTherapyMethod', e.target.value)}
                   className="w-full px-3 py-2 border border-blue-200 rounded-lg outline-none font-medium text-gray-800 bg-white"
                 >
-                  <option value="Play and Grow">Play and Grow</option>
-                  <option value="Pra Literasi">Pra Literasi</option>
-                  <option value="Play and Grow & Pra Literasi">Play and Grow & Pra Literasi</option>
+                  <option value="Terapi Anak Spesial">Terapi Anak Spesial — Rp 150.000/sesi</option>
+                  <option value="Kelas Anak Usia Dini (Pra-Literasi)">Kelas Anak Usia Dini (Pra-Literasi) — Rp 500.000/blok</option>
+                  <option value="Bimbingan Belajar Intensif SD">Bimbingan Belajar Intensif SD — Rp 600.000/8 pertemuan</option>
+                  <option value="Shadow Teacher">Shadow Teacher — Sesuai Kebutuhan</option>
                 </select>
               </div>
 
@@ -317,13 +318,24 @@ export default function PatientForm({
                   className="w-full px-3 py-2 border border-amber-300 rounded-lg outline-none font-medium text-gray-800 bg-white focus:ring-2 focus:ring-amber-500 text-xs"
                 >
                   <option value="">-- Pilih Layanan Standar --</option>
-                  <option value="Assessment / Intake Interview">Assessment / Intake Interview (Rp 300.000)</option>
-                  <option value="Konseling Individu">Konseling Individu (Rp 300.000)</option>
-                  <option value="Psikoterapi">Psikoterapi (Rp 350.000)</option>
-                  <option value="Terapi Anak">Terapi Anak (Rp 300.000)</option>
-                  <option value="Konseling Pasangan (Couple)">Konseling Pasangan (Rp 600.000)</option>
-                  <option value="Konseling Keluarga">Konseling Keluarga (Rp 600.000)</option>
-                  <option value="Layanan Lainnya">Layanan Lainnya / Kustom</option>
+                  <optgroup label="── Layanan Individu ──">
+                    <option value="Konseling Individu (60 Menit)">Konseling Individu (60 Menit) — Rp 300.000</option>
+                    <option value="Program Psikoterapi">Program Psikoterapi — Rp 400.000</option>
+                    <option value="Couple Counseling (60 Menit)">Couple Counseling (60 Menit) — Rp 650.000</option>
+                    <option value="Tes IQ Individual (WISC/WAIS)">Tes IQ Individual (WISC/WAIS) — Rp 850.000</option>
+                    <option value="Tes Skrining ADHD (DIVA-5)">Tes Skrining ADHD (DIVA-5) — Rp 500.000</option>
+                    <option value="Asesmen Tumbuh Kembang Preschool">Asesmen Tumbuh Kembang Preschool — Rp 300.000</option>
+                  </optgroup>
+                  <optgroup label="── Layanan Instansi ──">
+                    <option value="Psikoedukasi">Psikoedukasi — Rp 1.500.000</option>
+                    <option value="Psikotes Rekrutmen">Psikotes Rekrutmen — Rp 300.000/orang</option>
+                    <option value="Analisis Jabatan Manajerial">Analisis Jabatan Manajerial — Rp 400.000/orang</option>
+                    <option value="Analisis Jabatan Pimpinan">Analisis Jabatan Pimpinan — Rp 700.000/orang</option>
+                    <option value="Outbound / Forest Therapy">Outbound / Forest Therapy — Rp 300.000/orang</option>
+                  </optgroup>
+                  <optgroup label="── Layanan Lainnya ──">
+                    <option value="Layanan Lainnya">Layanan Lainnya / Kustom (Isi Manual)</option>
+                  </optgroup>
                 </select>
               </div>
 

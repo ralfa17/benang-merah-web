@@ -13,15 +13,19 @@ import {
   PlusIcon,
   LockIcon,
   CheckIcon,
-  PhoneIcon
+  PhoneIcon,
+  DownloadIcon
 } from './icons';
 import { formatRupiah, formatDate, parseAppointmentNotes } from '../lib/helpers';
-import { LIST_PSIKOLOG } from '../lib/constants';
+import { LIST_PSIKOLOG, THERAPIST_INCENTIVE_SERVICES, THERAPIST_INCENTIVE_SESSION_THRESHOLD } from '../lib/constants';
+import { exportPsychologistReportDocx, exportTherapistProgressDocx } from '../lib/docxExport';
 
 export default function PatientAccordionRow({
   patientGroup,
   isOpenDefault = false,
+  userRole,
   userName,
+  hasMasterAccess = false,
   hasAdminAccess,
   hasPsychologistAccess,
   hasTherapistAccess,
@@ -33,6 +37,7 @@ export default function PatientAccordionRow({
   onDeleteSession,
   onQuickAddSession
 }) {
+
   const [isOpen, setIsOpen] = useState(isOpenDefault);
 
   const {
@@ -44,6 +49,17 @@ export default function PatientAccordionRow({
     latestSession,
     hasPendingPayment
   } = patientGroup;
+
+  // ── Incentive Session Indicator (hanya untuk Terapis & Master) ──
+  const incentiveSessions = sessions.filter(s => {
+    const st = (s.service_type || s.category || '').toLowerCase();
+    return THERAPIST_INCENTIVE_SERVICES.some(svc =>
+      st.includes(svc.toLowerCase()) || svc.toLowerCase().includes(st)
+    );
+  });
+  const isIncentiveService = incentiveSessions.length > 0;
+  const incentiveCount = incentiveSessions.length;
+  const incentiveReady = incentiveCount >= THERAPIST_INCENTIVE_SESSION_THRESHOLD;
 
   return (
     <div className="border border-[#EADFD5] rounded-2xl overflow-hidden bg-white shadow-xs hover:shadow-md transition-all duration-200">
@@ -107,6 +123,21 @@ export default function PatientAccordionRow({
             </span>
           )}
 
+          {/* Badge Insentif Terapis - hanya tampil untuk Terapis & Master jika layanan insentif */}
+          {(hasTherapistAccess || hasMasterAccess) && isIncentiveService && (
+            <span
+              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${
+                incentiveReady
+                  ? 'bg-emerald-100 text-emerald-800 border-emerald-400'
+                  : 'bg-amber-100 text-amber-800 border-amber-300'
+              }`}
+            >
+              {incentiveReady
+                ? `✓ Syarat Insentif (Tgl 5)`
+                : `Progression: ${incentiveCount}/${THERAPIST_INCENTIVE_SESSION_THRESHOLD} Sesi`}
+            </span>
+          )}
+
           {hasAdminAccess && (
             <button
               type="button"
@@ -158,14 +189,15 @@ export default function PatientAccordionRow({
               const isMyTherapistPatient = matchesTherapistAssignment(item.assigned_terapis, userName);
 
               let canReadNotes = false;
-              if (hasAdminAccess) {
-                // Admin dapat membaca catatan info dasar pendaftaran
+              if (hasMasterAccess) {
+                // Role Master IT memiliki transparansi penuh monitoring
                 canReadNotes = true;
               } else if (hasPsychologistAccess && !isDirectTherapy && isMyPsychologistPatient) {
                 canReadNotes = true;
               } else if (hasTherapistAccess && isMyTherapistPatient) {
                 canReadNotes = true;
               }
+              // Catatan: Admin (Fauzan) strictly canReadNotes = false (Privasi Medis)
 
               const itemAdminFee = Number(item.admin_fee ?? 30000);
               const itemTotalPrice = Number(item.price ?? 30000);
@@ -176,7 +208,7 @@ export default function PatientAccordionRow({
               return (
                 <div
                   key={item.id || idx}
-                  className="bg-white rounded-xl border border-[#EADFD5] p-4 shadow-xs hover:border-[#701A24]/30 transition-colors"
+                  className="bg-white rounded-2xl border border-[#EADFD5] p-4 sm:p-5 shadow-xs hover:border-[#701A24]/30 hover:shadow-sm transition-all duration-300"
                 >
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
                     
@@ -343,11 +375,42 @@ export default function PatientAccordionRow({
 
                   {/* PREVIEW CATATAN REKAM MEDIS JIKA BERHAK AKSES */}
                   <div className="mt-3 pt-2.5 border-t border-gray-100 text-xs">
-                    <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">
-                      Catatan Rekam Medis & Diagnosa:
-                    </p>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">
+                        Catatan Rekam Medis & Diagnosa:
+                      </p>
+
+                      {/* DOWNLOAD WORD (.DOCX) LANGSUNG DARI BARIS SESI (PSIKOLOG / TERAPIS / MASTER) */}
+                      {canReadNotes && (
+                        <div className="flex items-center gap-1.5">
+                          {hasPsychologistAccess && !isDirectTherapy && (
+                            <button
+                              type="button"
+                              onClick={() => exportPsychologistReportDocx(item, sessions)}
+                              className="text-[10px] px-2.5 py-1 rounded-lg bg-blue-50 text-blue-800 hover:bg-blue-100 font-bold border border-blue-200 transition flex items-center gap-1 active:scale-95 shadow-2xs"
+                              title="Download Lembar Rekam Medis format .docx"
+                            >
+                              <DownloadIcon className="w-3 h-3 text-blue-700" />
+                              <span>Word (.docx)</span>
+                            </button>
+                          )}
+                          {hasTherapistAccess && (
+                            <button
+                              type="button"
+                              onClick={() => exportTherapistProgressDocx(item, sessions, userName)}
+                              className="text-[10px] px-2.5 py-1 rounded-lg bg-blue-50 text-blue-800 hover:bg-blue-100 font-bold border border-blue-200 transition flex items-center gap-1 active:scale-95 shadow-2xs"
+                              title="Download Progress Terapi format .docx"
+                            >
+                              <DownloadIcon className="w-3 h-3 text-blue-700" />
+                              <span>Word (.docx)</span>
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
                     {canReadNotes ? (
-                      <div className="bg-[#FAF8F5] p-3 rounded-lg text-gray-700 font-sans whitespace-pre-line text-[11px] leading-relaxed border border-[#EADFD5]">
+                      <div className="bg-[#FAF8F5] p-3 rounded-xl text-gray-700 font-sans whitespace-pre-line text-[11px] leading-relaxed border border-[#EADFD5]">
                         {meta.anamnesa || meta.diagnosis || meta.therapyProgress ? (
                           <div className="space-y-1.5">
                             {meta.anamnesa && (
@@ -370,10 +433,19 @@ export default function PatientAccordionRow({
                         )}
                       </div>
                     ) : (
-                      <p className="text-gray-400 italic flex items-center gap-1 text-[11px]">
-                        <LockIcon className="w-3.5 h-3.5 text-amber-600" />
-                        Privasi Medis Terlindungi (Hanya dapat diakses oleh Psikolog/Terapis yang ditugaskan).
-                      </p>
+                      <div className="bg-amber-50/80 border border-amber-200/80 rounded-xl p-3 text-amber-900 flex items-start gap-2.5">
+                        <div className="w-6 h-6 rounded-lg bg-amber-100 border border-amber-200 flex items-center justify-center shrink-0 mt-0.5">
+                          <LockIcon className="w-3.5 h-3.5 text-amber-800" />
+                        </div>
+                        <div>
+                          <p className="font-bold text-xs text-amber-950 flex items-center gap-1.5">
+                            <span>🔒 Terkunci (Privasi Medis)</span>
+                          </p>
+                          <p className="text-[11px] text-amber-800 mt-0.5 leading-relaxed">
+                            Catatan Anamnesa, Diagnosa Klinis, dan Progress Terapi bersifat konfidensial dan disamarkan dari Admin. Akses penuh hanya terbuka bagi Tenaga Medis (Psikolog/Terapis) atau Master IT.
+                          </p>
+                        </div>
+                      </div>
                     )}
                   </div>
 

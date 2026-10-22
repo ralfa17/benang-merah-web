@@ -7,17 +7,53 @@ export const MASTER_VOUCHERS = {
 // BATAS MAX PEMAKAIAN VOUCHER OPENING
 export const MAX_OPENING_VOUCHER_QUOTA = 17;
 
-// MASTER HARGA STANDAR LAYANAN PSIKOLOG
+// ============================================================
+// MASTER HARGA LAYANAN 2026 - PRICELIST RESMI KLINIK BENANG MERAH
+// ============================================================
+
+// LAYANAN INDIVIDU (Psikolog)
 export const SERVICE_PRICES = {
-  'Assessment / Intake Interview': 300000,
+  // Layanan Individu
+  'Konseling Individu (60 Menit)': 300000,
+  'Program Psikoterapi': 400000,
+  'Couple Counseling (60 Menit)': 650000,
+  'Tes IQ Individual (WISC/WAIS)': 850000,
+  'Tes Skrining ADHD (DIVA-5)': 500000,
+  'Asesmen Tumbuh Kembang Preschool': 300000,
+
+  // Layanan Anak & Terapi Khusus
+  'Terapi Anak Spesial': 150000,
+  'Kelas Anak Usia Dini (Pra-Literasi)': 500000,
+  'Bimbingan Belajar Intensif SD': 600000,
+  'Shadow Teacher': 0, // Sesuai Kebutuhan Sekolah (harga custom)
+
+  // Layanan Instansi
+  'Psikoedukasi': 1500000,
+  'Psikotes Rekrutmen': 300000,
+  'Analisis Jabatan Manajerial': 400000,
+  'Analisis Jabatan Pimpinan': 700000,
+  'Outbound / Forest Therapy': 300000,
+
+  // Legacy/Compatibility (agar data lama tidak rusak)
   'Konseling Individu': 300000,
-  'Psikoterapi': 350000,
-  'Terapi Anak': 300000,
-  'Konseling Pasangan (Couple)': 600000,
+  'Psikoterapi': 400000,
+  'Terapi Anak': 150000,
+  'Konseling Pasangan (Couple)': 650000,
   'Konseling Keluarga': 600000,
-  'Play and Grow': 250000,
-  'Pra Literasi': 250000
+  'Assessment / Intake Interview': 300000,
+  'Pra Literasi': 500000,
+  'Play and Grow': 150000
 };
+
+// LAYANAN YANG MEMILIKI SISTEM INSENTIF TERAPIS (per 8 sesi/pertemuan)
+// Insentif cair tiap genap 8 sesi, pada tanggal 5 bulan berikutnya
+export const THERAPIST_INCENTIVE_SERVICES = [
+  'Kelas Anak Usia Dini (Pra-Literasi)',
+  'Bimbingan Belajar Intensif SD',
+  'Pra Literasi' // legacy key
+];
+export const THERAPIST_INCENTIVE_SESSION_THRESHOLD = 8; // Per berapa sesi insentif cair
+
 
 // MASTER PETUGAS HANDLE BY ADMIN (MURNI FAUZAN)
 export const ADMIN_HANDLERS = ['Fauzan'];

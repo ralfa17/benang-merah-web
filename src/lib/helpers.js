@@ -469,3 +469,84 @@ export const exportTherapistExcel = (myPatients, userName) => {
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
 };
+
+// EXPORT REKAP KONSELING & REKAM MEDIS PSIKOLOG KE EXCEL
+export const exportPsychologistExcel = (myPatients, userName) => {
+  if (!myPatients || myPatients.length === 0) {
+    alert(`Belum ada data pendaftaran/konseling untuk ${userName}.`);
+    return;
+  }
+
+  let tableHTML = `
+    <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+    <head>
+      <meta http-equiv="content-type" content="application/vnd.ms-excel; charset=UTF-8"/>
+      <style>
+        body { font-family: Calibri, sans-serif; }
+        .title { font-size: 14pt; font-weight: bold; color: #701A24; }
+        .subtitle { font-size: 10pt; color: #555555; margin-bottom: 15px; }
+        table { border-collapse: collapse; width: 100%; font-size: 10pt; }
+        th { background-color: #701A24; color: #ffffff; font-weight: bold; padding: 8px 10px; border: 1px solid #54121B; text-align: left; }
+        td { padding: 6px 10px; border: 1px solid #D1D5DB; vertical-align: top; }
+        .center { text-align: center; }
+        .bold { font-weight: bold; }
+      </style>
+    </head>
+    <body>
+      <div class="title">REKAP EVALUASI & REKAM MEDIS PSIKOLOG - ${userName.toUpperCase()}</div>
+      <div class="subtitle">Klinik Benang Merah | Tanggal Ekspor: ${new Date().toLocaleDateString('id-ID')} | Total: ${myPatients.length} Pasien/Sesi</div>
+      <table>
+        <thead>
+          <tr>
+            <th class="center">No</th>
+            <th>Tanggal</th>
+            <th>Jam</th>
+            <th>Nama Pasien</th>
+            <th class="center">Usia</th>
+            <th class="center">Sesi Ke-</th>
+            <th>Layanan</th>
+            <th>Psikolog PJ</th>
+            <th>Anamnesa / Keluhan</th>
+            <th>Diagnosa Klinis</th>
+            <th>Rencana Tindak Lanjut</th>
+            <th>Rujukan Terapis</th>
+            <th class="center">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+  `;
+
+  myPatients.forEach((item, index) => {
+    const meta = parseAppointmentNotes(item.notes);
+    tableHTML += `
+      <tr>
+        <td class="center">${index + 1}</td>
+        <td>${item.booking_date || '-'}</td>
+        <td>${item.booking_time || '-'}</td>
+        <td class="bold">${item.patient_name || '-'}</td>
+        <td class="center">${item.age ? item.age + ' Thn' : '-'}</td>
+        <td class="center">${item.visit_number || 1}</td>
+        <td>${(item.service_type || item.category || 'Konseling').toUpperCase()}</td>
+        <td>${item.doctor_name || '-'}</td>
+        <td>${(meta.anamnesa || '-').replace(/\n/g, '<br/>')}</td>
+        <td>${(meta.diagnosis || '-').replace(/\n/g, '<br/>')}</td>
+        <td>${(meta.followUpPlan || '-').replace(/\n/g, '<br/>')}</td>
+        <td>${meta.internalReferral || '-'}</td>
+        <td class="center">${(item.status || 'pending').toUpperCase()}</td>
+      </tr>
+    `;
+  });
+
+  tableHTML += `</tbody></table></body></html>`;
+
+  const blob = new Blob([tableHTML], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.setAttribute('href', url);
+  link.setAttribute('download', `Rekap_Konseling_${userName.replace(/[^a-zA-Z0-9]/g, '_')}_${new Date().toISOString().slice(0, 10)}.xls`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};
+
