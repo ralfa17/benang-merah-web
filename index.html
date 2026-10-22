@@ -2,50 +2,54 @@
 <html lang="id">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#2563eb" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0" />
+    <meta name="theme-color" content="#701A24" />
 
     <!-- Favicon Browser & Apple PWA -->
     <link rel="icon" type="image/png" href="/logo.png" />
-    <link rel="apple-touch-icon" href="/logo.png" />
-    <link rel="apple-touch-icon" sizes="180x180" href="/logo.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="apple-touch-icon" sizes="192x192" href="/pwa-192x192.png" />
+    <link rel="apple-touch-icon" sizes="512x512" href="/pwa-512x512.png" />
 
-    <!-- Primary SEO Meta Tags (Agar Muncul di Google) -->
+    <!-- Primary SEO Meta Tags (Google Search) -->
     <title>Benang Merah Psy | Klinik & Layanan Psikologi</title>
     <meta name="title" content="Benang Merah Psy | Klinik & Layanan Psikologi" />
-    <meta name="description" content="Official website Benang Merah Psy. Layanan rekam medis, edukasi, psikologi, dan konseling kesehatan mental terpercaya." />
-    <meta name="keywords" content="Benang Merah Psy, benangmerahpsy, benang merah, klinik psikologi, konseling, kesehatan mental, rekam medis psikologi" />
+    <meta name="description" content="Official website Benang Merah Psy. Layanan rekam medis, edukasi, psikologi klinis, dan konseling kesehatan mental terpercaya di Cirebon." />
+    <meta name="keywords" content="Benang Merah Psy, benangmerahpsy, klinik psikologi, konseling cirebon, psikolog anak, rekam medis psikologi" />
     <meta name="robots" content="index, follow" />
 
-    <!-- Open Graph / Facebook / WhatsApp Preview Link -->
+    <!-- Open Graph / WhatsApp Preview Link -->
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://benangmerahpsy.id/" />
     <meta property="og:title" content="Benang Merah Psy | Klinik & Layanan Psikologi" />
-    <meta property="og:description" content="Official website Benang Merah Psy. Layanan rekam medis, edukasi, psikologi, dan konseling kesehatan mental terpercaya." />
+    <meta property="og:description" content="Layanan rekam medis, edukasi, psikologi klinis, dan konseling kesehatan mental terpercaya di Cirebon." />
     <meta property="og:image" content="https://benangmerahpsy.id/logo.png" />
 
     <!-- Twitter / X Card Preview -->
     <meta property="twitter:card" content="summary_large_image" />
     <meta property="twitter:url" content="https://benangmerahpsy.id/" />
     <meta property="twitter:title" content="Benang Merah Psy | Klinik & Layanan Psikologi" />
-    <meta property="twitter:description" content="Official website Benang Merah Psy. Layanan rekam medis, edukasi, psikologi, dan konseling kesehatan mental terpercaya." />
+    <meta property="twitter:description" content="Layanan rekam medis, edukasi, psikologi klinis, dan konseling kesehatan mental terpercaya di Cirebon." />
     <meta property="twitter:image" content="https://benangmerahpsy.id/logo.png" />
 
     <!-- iOS / Apple PWA Support -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Benang Merah" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="application-name" content="Benang Merah" />
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
 
-    <!-- PWA Service Worker Registration -->
+    <!-- PWA Service Worker Registration Fallback -->
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
           navigator.serviceWorker.register('/sw.js').catch((err) => {
-            console.log('SW registration failed: ', err);
+            console.log('SW registration note: ', err);
           });
         });
       }

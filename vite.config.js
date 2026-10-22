@@ -10,25 +10,45 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
-      // Tambahkan ini agar favicon.ico default tidak diikutsertakan:
-      includeAssets: ['bm.png', 'robots.txt', 'apple-touch-icon.png'], 
+      includeAssets: [
+        'logo.png',
+        'bm.png',
+        'apple-touch-icon.png',
+        'pwa-192x192.png',
+        'pwa-512x512.png',
+        'favicon.svg',
+        'robots.txt'
+      ],
       manifest: {
         name: 'Klinik Psikologi Benang Merah',
         short_name: 'Benang Merah',
-        description: 'Layanan Psikologi & Konseling Benang Merah Cirebon',
-        theme_color: '#ffffff',
-        start_url: '/', // Pastikan ini ada
-        display: 'standalone', // Pastikan ini ada
+        description: 'Layanan Rekam Medis & Konseling Psikologi Klinis Benang Merah Cirebon',
+        theme_color: '#701A24',
+        background_color: '#FAF8F5',
+        start_url: '/',
+        display: 'standalone',
+        orientation: 'portrait',
         icons: [
-          // Konfigurasi ini memberitahu PWA untuk memakai bm.png untuk semua ukuran
           {
-            src: '/bm.png',
-            sizes: '512x512', // Cukup cantumkan ukuran yang diminta
+            src: '/pwa-192x192.png',
+            sizes: '192x192',
             type: 'image/png',
-            purpose: 'any maskable' // Tambahkan 'maskable' agar ikon bagus di Android
+            purpose: 'any'
+          },
+          {
+            src: '/pwa-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'any maskable'
+          },
+          {
+            src: '/logo.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'any maskable'
           }
         ]
       }
     })
-  ],
+  ]
 })
