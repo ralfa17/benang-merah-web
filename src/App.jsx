@@ -983,7 +983,7 @@ export default function App() {
                     }}
                     className="w-full px-3 py-2 bg-amber-50 text-amber-900 border border-amber-300 rounded-xl text-xs font-bold outline-none"
                   >
-                    <option value="default">🔍 Switch View (Master IT)</option>
+                    <option value="default">Switch View (Master IT)</option>
                     <option value="admin:Fauzan Hamdani">View as: Admin (Fauzan)</option>
                     <option value="terapis:Shima Adinda Salsabil">View as: Terapis (Shima)</option>
                     <option value="psikolog:M. Azka Maulana, M.Psi., Psikolog">View as: Psikolog (Pak Azka)</option>
