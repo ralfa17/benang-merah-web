@@ -385,7 +385,7 @@ export default function PublicLanding() {
           <h3 className="text-center font-serif text-2xl font-bold text-[#701A24] mb-8">
             Tim Terapis Anak
           </h3>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
             {THERAPISTS_DATA.map((t, i) => (
               <div
                 key={i}

@@ -8,6 +8,7 @@ export const ROLE_LABELS = {
 };
 
 const SHIMA_EMAILS = ['salsabilshima@gmail.com'];
+const CASMI_EMAILS = ['casmi.gustari@benangmerah.id', 'casmigustari@gmail.com', 'casmi.gustari@gmail.com'];
 const RIDHO_EMAILS = ['ridhoalfattaah17@gmail.com'];
 const FAUZAN_EMAILS = ['fauzanhamdani@gmail.com', 'fauzan@benangmerah.id'];
 
@@ -28,13 +29,18 @@ export function normalizeRole(rawRole, { email = '', fullName = '' } = {}) {
     return 'master';
   }
 
-  // 2. ROLE TERAPIS (Shima difokuskan MURNI sebagai Terapis bersama Silvi, Difa, Eka)
+  // 2. ROLE TERAPIS (Shima, Silvi, Difa, Eka, Casmi Gustari)
   const isShimaAccount =
     SHIMA_EMAILS.includes(emailL) ||
     nameL.includes('shima adinda') ||
     (nameL.includes('shima') && nameL.includes('salsabil'));
 
-  if (isShimaAccount || role === 'terapis' || role === 'therapist') {
+  const isCasmiAccount =
+    CASMI_EMAILS.includes(emailL) ||
+    nameL.includes('casmi gustari') ||
+    nameL.includes('casmi');
+
+  if (isShimaAccount || isCasmiAccount || role === 'terapis' || role === 'therapist') {
     return 'terapis';
   }
 
@@ -74,6 +80,7 @@ export function matchesTherapistAssignment(assignedTo, userName) {
   const aliases = [
     { user: ['difa', 'nadifa', 'nadifah'], assigned: ['nadifa', 'difa', 'nadifah'] },
     { user: ['shima', 'salsabil'], assigned: ['shima', 'sima', 'salsabil'] },
+    { user: ['casmi', 'gustari'], assigned: ['casmi', 'gustari'] },
   ];
 
   return aliases.some(

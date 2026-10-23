@@ -35,7 +35,9 @@ export default function PatientAccordionRow({
   onOpenEditModal,
   onOpenReceiptModal,
   onDeleteSession,
-  onQuickAddSession
+  onQuickAddSession,
+  onTherapistAddSession,
+  onTherapistEditSchedule
 }) {
 
   const [isOpen, setIsOpen] = useState(isOpenDefault);
@@ -49,6 +51,16 @@ export default function PatientAccordionRow({
     latestSession,
     hasPendingPayment
   } = patientGroup;
+
+  // Cek apakah pasien ini ditugaskan ke terapis yang sedang login
+  const isAssignedToThisTherapist = sessions.some((s) => {
+    if (typeof matchesTherapistAssignment === 'function') {
+      return matchesTherapistAssignment(s.assigned_terapis, userName);
+    }
+    const at = (s.assigned_terapis || '').toLowerCase();
+    const un = (userName || '').toLowerCase();
+    return at && un && (at.includes(un) || un.includes(at));
+  });
 
   // ── Incentive Session Indicator (hanya untuk Terapis & Master) ──
   const incentiveSessions = sessions.filter(s => {
@@ -150,6 +162,22 @@ export default function PatientAccordionRow({
             >
               <PlusIcon className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">+ Sesi Lanjutan</span>
+            </button>
+          )}
+
+          {/* Tombol Mandiri Terapis: Tambah Sesi untuk Pasien Binaan */}
+          {hasTherapistAccess && isAssignedToThisTherapist && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onTherapistAddSession) onTherapistAddSession(patientGroup);
+              }}
+              title="Tambah Sesi Terapi Mandiri untuk Pasien Ini"
+              className="px-3 py-1.5 bg-blue-600/10 hover:bg-blue-700 text-blue-700 hover:text-white rounded-xl text-xs font-semibold transition flex items-center gap-1.5 border border-blue-300/60 active:scale-95 shadow-2xs"
+            >
+              <PlusIcon className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">+ Sesi Terapi</span>
             </button>
           )}
 
@@ -311,14 +339,25 @@ export default function PatientAccordionRow({
 
                       {/* Tombol Progress Terapi (Khusus Terapis) */}
                       {hasTherapistAccess && isMyTherapistPatient && (
-                        <button
-                          type="button"
-                          onClick={() => onOpenTherapyModal(item)}
-                          className="w-full px-3 py-1.5 bg-blue-700 text-white rounded-lg text-xs font-semibold hover:bg-blue-800 flex items-center justify-center gap-1.5 transition shadow-xs"
-                        >
-                          <EditIcon className="w-3.5 h-3.5" />
-                          Progress Terapi
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => onOpenTherapyModal(item)}
+                            className="w-full px-3 py-1.5 bg-blue-700 text-white rounded-lg text-xs font-semibold hover:bg-blue-800 flex items-center justify-center gap-1.5 transition shadow-xs"
+                          >
+                            <EditIcon className="w-3.5 h-3.5" />
+                            Progress Terapi
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => onTherapistEditSchedule && onTherapistEditSchedule(item)}
+                            className="w-full px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition active:scale-95 shadow-2xs"
+                          >
+                            <CalendarIcon className="w-3.5 h-3.5 text-blue-700" />
+                            Edit Jadwal Sesi
+                          </button>
+                        </>
                       )}
 
                       {/* Tombol Cetak / Lihat Nota Invoice (Admin) */}

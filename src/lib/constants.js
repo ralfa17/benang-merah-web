@@ -145,27 +145,33 @@ export const PSYCHOLOGISTS_DATA = [
 export const THERAPISTS_DATA = [
   {
     name: 'Shima Adinda Salsabil',
-    role: 'CO-TERAPIS ANAK',
+    role: 'TERAPIS ANAK',
     spec: 'Spesialisasi: Pendampingan interaksi positif, Play and Grow, Pra Literasi, stimulasi kemandirian, serta intervensi anak.',
     image: '/shima.jpeg'
   },
   {
     name: 'Silviyah Wulandari',
-    role: 'CO-TERAPIS ANAK',
+    role: 'TERAPIS ANAK',
     spec: 'Spesialisasi: Stimulasi kemampuan sensorik, Play and Grow, Pra Literasi, serta kesiapan belajar pra-sekolah anak.',
     image: '/silvi.jpeg'
   },
   {
     name: 'Nadifa A.M',
-    role: 'CO-TERAPIS ANAK',
+    role: 'TERAPIS ANAK',
     spec: 'Spesialisasi: Pendampingan stimulasi pemahaman emosi, ekspresi diri positif, Play and Grow, serta Pra Literasi.',
     image: '/difa.jpeg'
   },
   {
     name: 'Eka Zahra Nabila Nakhwa',
-    role: 'CO-TERAPIS ANAK',
+    role: 'TERAPIS ANAK',
     spec: 'Spesialisasi: Fasilitasi terapi bermain edukatif (Play and Grow), Pra Literasi, serta pembinaan regulasi emosi.',
     image: '/eka.jpeg'
+  },
+  {
+    name: 'Casmi Gustari',
+    role: 'TERAPIS ANAK',
+    spec: 'Spesialisasi: Pendampingan terapi anak, stimulasi tumbuh kembang, interaksi positif, dan intervensi perilaku anak.',
+    image: '/casmi.jpeg'
   }
 ];
 

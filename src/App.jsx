@@ -34,7 +34,8 @@ import {
   ADMIN_HANDLERS,
   PAYMENT_METHODS,
   MASTER_VOUCHERS,
-  MAX_OPENING_VOUCHER_QUOTA
+  MAX_OPENING_VOUCHER_QUOTA,
+  SERVICE_PRICES
 } from './lib/constants';
 import {
   buildAppointmentNotes,
@@ -160,6 +161,21 @@ export default function App() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+  // State untuk Fitur Kemandirian Terapis (Input Sesi & Edit Jadwal Mandiri)
+  const [showTherapistSessionForm, setShowTherapistSessionForm] = useState(false);
+  const [therapistSessionData, setTherapistSessionData] = useState({
+    patientGroup: null,
+    bookingDate: new Date().toISOString().slice(0, 10),
+    bookingTime: '09:00 WIB',
+    serviceType: 'Terapi Anak Spesial',
+    notes: ''
+  });
+  const [therapistEditTarget, setTherapistEditTarget] = useState(null);
+  const [showTherapistEditModal, setShowTherapistEditModal] = useState(false);
+  const [therapistScheduleDate, setTherapistScheduleDate] = useState('');
+  const [therapistScheduleTime, setTherapistScheduleTime] = useState('');
+  const [savingTherapistSession, setSavingTherapistSession] = useState(false);
+
   // ============================================================
   // 7. ROLE & PRIVILEGE CHECKS (MENDUKUNG SIMULATOR MASTER)
   // ============================================================
@@ -189,32 +205,50 @@ export default function App() {
   }, []);
 
   const fetchActiveTherapists = useCallback(async () => {
+    const defaultTherapists = [
+      'Shima Adinda Salsabil',
+      'Silviyah Wulandari',
+      'Nadifah AM',
+      'Eka Zahra Nabila Nakhwa',
+      'Casmi Gustari'
+    ];
+
     try {
       const { data: profiles, error } = await supabase
         .from('profiles')
         .select('full_name, role');
 
-      if (error) throw error;
+      if (error) {
+        console.warn('Gagal mengambil profil terapis dari DB, gunakan default:', error.message);
+        setActiveTherapistList(defaultTherapists);
+        setFormData((prev) => ({
+          ...prev,
+          directTherapist: prev.directTherapist || defaultTherapists[0]
+        }));
+        return;
+      }
 
-      if (profiles && profiles.length > 0) {
-        const registeredTherapists = profiles
-          .filter((p) => {
-            const role = normalizeRole(p.role, { fullName: p.full_name || '' });
-            return role === 'terapis' || role === 'admin_terapis';
-          })
-          .map((p) => p.full_name)
-          .filter(Boolean);
+      const dbTherapists = (profiles || [])
+        .filter((p) => {
+          const role = normalizeRole(p.role, { fullName: p.full_name || '' });
+          return role === 'terapis' || role === 'admin_terapis';
+        })
+        .map((p) => p.full_name)
+        .filter(Boolean);
 
-        setActiveTherapistList(registeredTherapists);
-        if (registeredTherapists.length > 0) {
-          setFormData((prev) => ({
-            ...prev,
-            directTherapist: prev.directTherapist || registeredTherapists[0]
-          }));
-        }
+      // Gabungkan daftar default master data dengan profil yang sudah register di Supabase
+      const combined = Array.from(new Set([...defaultTherapists, ...dbTherapists]));
+
+      setActiveTherapistList(combined);
+      if (combined.length > 0) {
+        setFormData((prev) => ({
+          ...prev,
+          directTherapist: prev.directTherapist || combined[0]
+        }));
       }
     } catch (err) {
       console.error('Gagal mengambil terapis terdaftar:', err.message);
+      setActiveTherapistList(defaultTherapists);
     }
   }, []);
 
@@ -508,6 +542,97 @@ export default function App() {
 
     setBookingMsg(`Form disiapkan untuk Sesi #${nextVisitNumber} - Pasien: ${patientGroup.patientName}`);
     window.scrollTo({ top: 350, behavior: 'smooth' });
+  };
+
+  // ============================================================
+  // HANDLERS KEMANDIRIAN TERAPIS (TAMBAH SESI MANDIRI & EDIT JADWAL)
+  // ============================================================
+  const handleTherapistAddSession = (patientGroup) => {
+    const latest = patientGroup.latestSession;
+    const defaultSvc = latest?.service_type || latest?.category || 'Terapi Anak Spesial';
+    setTherapistSessionData({
+      patientGroup,
+      bookingDate: new Date().toISOString().slice(0, 10),
+      bookingTime: '09:00 WIB',
+      serviceType: defaultSvc,
+      notes: ''
+    });
+    setShowTherapistSessionForm(true);
+  };
+
+  const handleSubmitTherapistSession = async () => {
+    if (!therapistSessionData.patientGroup) return;
+    setSavingTherapistSession(true);
+    try {
+      const pg = therapistSessionData.patientGroup;
+      const nextVisit = pg.totalSessions + 1;
+      const latest = pg.latestSession;
+
+      // Harga dasar layanan terapis
+      const calculatedPrice = SERVICE_PRICES[therapistSessionData.serviceType] || Number(latest?.price || 150000);
+
+      const therapistLogNote = `[SESI MANDIRI TERAPIS]\nDitambahkan mandiri oleh: ${activeName}\nLayanan: ${therapistSessionData.serviceType}\nCatatan: ${therapistSessionData.notes || 'Sesi lanjutan terapi'}`;
+
+      const { error } = await supabase.from('appointments').insert([
+        {
+          patient_name: pg.patientName,
+          doctor_name: latest?.doctor_name || 'Layanan Langsung Terapis',
+          assigned_to: latest?.doctor_name || 'Layanan Langsung Terapis',
+          assigned_terapis: activeName,
+          booking_date: therapistSessionData.bookingDate,
+          booking_time: therapistSessionData.bookingTime || 'Sesuai Janji',
+          status: 'dirujuk_terapis',
+          service_type: therapistSessionData.serviceType,
+          category: therapistSessionData.serviceType,
+          notes: therapistLogNote,
+          age: parseInt(pg.age, 10) || 0,
+          visit_number: nextVisit,
+          price: calculatedPrice,
+          admin_fee: 0 // Biaya admin tidak ditagihkan lagi pada sesi lanjutan mandiri terapis
+        }
+      ]);
+
+      if (error) throw error;
+
+      alert(`Sesi ke-${nextVisit} untuk pasien ${pg.patientName} berhasil ditambahkan oleh Terapis ${activeName.split(' ')[0]}!`);
+      setShowTherapistSessionForm(false);
+      fetchAppointments();
+    } catch (err) {
+      alert(`Gagal menambahkan sesi terapi: ${err.message}`);
+    } finally {
+      setSavingTherapistSession(false);
+    }
+  };
+
+  const handleTherapistEditSchedule = (item) => {
+    setTherapistEditTarget(item);
+    setTherapistScheduleDate(item.booking_date || new Date().toISOString().slice(0, 10));
+    setTherapistScheduleTime(item.booking_time || '09:00 WIB');
+    setShowTherapistEditModal(true);
+  };
+
+  const handleSubmitTherapistSchedule = async () => {
+    if (!therapistEditTarget) return;
+    setSavingTherapistSession(true);
+    try {
+      const { error } = await supabase
+        .from('appointments')
+        .update({
+          booking_date: therapistScheduleDate,
+          booking_time: therapistScheduleTime
+        })
+        .eq('id', therapistEditTarget.id);
+
+      if (error) throw error;
+
+      alert('Jadwal sesi terapi berhasil diperbarui!');
+      setShowTherapistEditModal(false);
+      fetchAppointments();
+    } catch (err) {
+      alert(`Gagal memperbarui jadwal: ${err.message}`);
+    } finally {
+      setSavingTherapistSession(false);
+    }
   };
 
   // ============================================================
@@ -855,6 +980,7 @@ export default function App() {
                     <option value="terapis:Silviyah Wulandari">View as: Terapis (Silvi)</option>
                     <option value="terapis:Nadifah AM">View as: Terapis (Difa)</option>
                     <option value="terapis:Eka Zahra Nabila Nakhwa">View as: Terapis (Eka)</option>
+                    <option value="terapis:Casmi Gustari">View as: Terapis (Casmi)</option>
                   </select>
                 </div>
               )}
@@ -991,6 +1117,7 @@ export default function App() {
                     <option value="terapis:Silviyah Wulandari">View as: Terapis (Silvi)</option>
                     <option value="terapis:Nadifah AM">View as: Terapis (Difa)</option>
                     <option value="terapis:Eka Zahra Nabila Nakhwa">View as: Terapis (Eka)</option>
+                    <option value="terapis:Casmi Gustari">View as: Terapis (Casmi)</option>
                   </select>
 
                   {!simulationPersona && (
@@ -1285,6 +1412,8 @@ export default function App() {
                         onOpenReceiptModal={handleOpenReceiptModal}
                         onDeleteSession={handleDeleteSession}
                         onQuickAddSession={handleQuickAddSession}
+                        onTherapistAddSession={handleTherapistAddSession}
+                        onTherapistEditSchedule={handleTherapistEditSchedule}
                         onToggleStatus={handleMarkAsPaid}
                       />
                     ))}
@@ -1347,6 +1476,200 @@ export default function App() {
             onClose={() => setShowEditModal(false)}
             onSave={handleSaveEditAppointment}
           />
+        )}
+
+        {/* MODAL 5: TAMBAH SESI TERAPI MANDIRI (TERAPIS) */}
+        {showTherapistSessionForm && therapistSessionData.patientGroup && (
+          <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl border border-[#EADFD5] w-full max-w-md p-6 space-y-4 animate-fade-up">
+              <div className="flex items-center justify-between pb-3 border-b border-[#EADFD5]">
+                <h3 className="font-serif font-bold text-base text-[#701A24]">
+                  + Tambah Sesi Terapi Mandiri
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setShowTherapistSessionForm(false)}
+                  className="text-gray-400 hover:text-gray-700 text-xs font-semibold px-2 py-1 rounded-lg hover:bg-gray-100 transition"
+                >
+                  ✕ Tutup
+                </button>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-3.5 text-xs text-blue-900">
+                <p className="font-bold text-sm text-blue-950">
+                  Pasien: {therapistSessionData.patientGroup.patientName}
+                </p>
+                <div className="flex flex-wrap items-center gap-2 mt-1 text-[11px] text-blue-800">
+                  <span className="font-semibold px-2 py-0.5 rounded-full bg-blue-100">
+                    Sesi Ke-{therapistSessionData.patientGroup.totalSessions + 1}
+                  </span>
+                  <span>•</span>
+                  <span>Terapis PJ: <strong>{activeName}</strong></span>
+                </div>
+              </div>
+
+              <div className="space-y-3.5">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    Tanggal Sesi Terapi
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={therapistSessionData.bookingDate}
+                    onChange={(e) =>
+                      setTherapistSessionData((prev) => ({ ...prev, bookingDate: e.target.value }))
+                    }
+                    className="w-full px-3.5 py-2 border border-gray-300 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-600 bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    Jam Sesi (WIB)
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Contoh: 09:00 WIB atau 14:00 WIB"
+                    value={therapistSessionData.bookingTime}
+                    onChange={(e) =>
+                      setTherapistSessionData((prev) => ({ ...prev, bookingTime: e.target.value }))
+                    }
+                    className="w-full px-3.5 py-2 border border-gray-300 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-600 bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    Layanan Terapi
+                  </label>
+                  <select
+                    value={therapistSessionData.serviceType}
+                    onChange={(e) =>
+                      setTherapistSessionData((prev) => ({ ...prev, serviceType: e.target.value }))
+                    }
+                    className="w-full px-3.5 py-2 border border-gray-300 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-600 bg-white font-medium"
+                  >
+                    <option value="Terapi Anak Spesial">Terapi Anak Spesial (Rp 150.000/sesi)</option>
+                    <option value="Kelas Anak Usia Dini (Pra-Literasi)">Kelas Anak Usia Dini / Pra-Literasi (Rp 500.000/blok)</option>
+                    <option value="Bimbingan Belajar Intensif SD">Bimbingan Belajar Intensif SD (Rp 600.000/8 pertemuan)</option>
+                    <option value="Shadow Teacher">Shadow Teacher (Sesuai Kebutuhan)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    Catatan Rencana Sesi (Opsional)
+                  </label>
+                  <textarea
+                    placeholder="Contoh: Fokus stimulasi konsentrasi dan sensori motorik..."
+                    rows={2}
+                    value={therapistSessionData.notes}
+                    onChange={(e) =>
+                      setTherapistSessionData((prev) => ({ ...prev, notes: e.target.value }))
+                    }
+                    className="w-full px-3.5 py-2 border border-gray-300 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-600 resize-none bg-white"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 pt-2 border-t border-[#EADFD5]">
+                <button
+                  type="button"
+                  onClick={() => setShowTherapistSessionForm(false)}
+                  className="flex-1 py-2.5 border border-gray-300 rounded-xl text-xs font-semibold text-gray-700 hover:bg-gray-100 transition"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSubmitTherapistSession}
+                  disabled={savingTherapistSession}
+                  className="flex-1 py-2.5 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold transition shadow-md disabled:opacity-50"
+                >
+                  {savingTherapistSession ? 'Menyimpan...' : 'Simpan Sesi Terapi'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL 6: EDIT JADWAL SESI TERAPIS MANDIRI */}
+        {showTherapistEditModal && therapistEditTarget && (
+          <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl border border-[#EADFD5] w-full max-w-sm p-6 space-y-4 animate-fade-up">
+              <div className="flex items-center justify-between pb-3 border-b border-[#EADFD5]">
+                <h3 className="font-serif font-bold text-base text-[#701A24]">
+                  Penyesuaian Jadwal Terapi
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setShowTherapistEditModal(false)}
+                  className="text-gray-400 hover:text-gray-700 text-xs font-semibold px-2 py-1 rounded-lg hover:bg-gray-100 transition"
+                >
+                  ✕ Tutup
+                </button>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-800">
+                <p className="font-bold text-slate-900">{therapistEditTarget.patient_name}</p>
+                <p className="text-[11px] text-slate-600 mt-0.5">
+                  Kunjungan Ke-{therapistEditTarget.visit_number} • {therapistEditTarget.service_type || therapistEditTarget.category}
+                </p>
+                <p className="text-[10px] text-blue-700 font-semibold mt-1">
+                  🔒 Batasan Akses: Hanya tanggal & jam yang dapat disesuaikan oleh Terapis.
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    Tanggal Sesi Baru
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={therapistScheduleDate}
+                    onChange={(e) => setTherapistScheduleDate(e.target.value)}
+                    className="w-full px-3.5 py-2 border border-gray-300 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-600 bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    Jam Sesi Baru (WIB)
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Contoh: 10:00 WIB"
+                    value={therapistScheduleTime}
+                    onChange={(e) => setTherapistScheduleTime(e.target.value)}
+                    className="w-full px-3.5 py-2 border border-gray-300 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-600 bg-white"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 pt-2 border-t border-[#EADFD5]">
+                <button
+                  type="button"
+                  onClick={() => setShowTherapistEditModal(false)}
+                  className="flex-1 py-2.5 border border-gray-300 rounded-xl text-xs font-semibold text-gray-700 hover:bg-gray-100 transition"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSubmitTherapistSchedule}
+                  disabled={savingTherapistSession}
+                  className="flex-1 py-2.5 bg-[#701A24] hover:bg-[#54121B] text-white rounded-xl text-xs font-bold transition shadow-md disabled:opacity-50"
+                >
+                  {savingTherapistSession ? 'Menyimpan...' : 'Simpan Perubahan'}
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* PWA INSTALL PROMPT */}
