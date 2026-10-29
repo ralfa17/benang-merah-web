@@ -9,7 +9,7 @@ import {
   DownloadIcon
 } from './icons';
 import { formatRupiah, formatDate, parseAppointmentNotes } from '../lib/helpers';
-import { SERVICE_PRICES } from '../lib/constants';
+import { SERVICE_PRICES, THERAPIST_INCENTIVE_SERVICES } from '../lib/constants';
 
 export default function ReceiptModal({
   appointment,
@@ -26,7 +26,17 @@ export default function ReceiptModal({
   const adminFee = Number(appointment.admin_fee ?? 30000);
   const totalAmount = Number(appointment.price ?? 30000);
   const hasVoucher = meta.voucherCode === 'OPENING100K';
-  const baseServicePrice = SERVICE_PRICES[appointment.service_type] || Math.max(0, totalAmount - adminFee + (hasVoucher ? 100000 : 0));
+
+  // Deteksi layanan paket per blok (8 sesi)
+  const isBlockService = THERAPIST_INCENTIVE_SERVICES.some((svc) =>
+    (appointment.service_type || appointment.category || '').toLowerCase().includes(svc.toLowerCase())
+  );
+  const sessionInBlock = ((Number(appointment.visit_number || 1) - 1) % 8) + 1;
+  const isSubsequentBlockSession = isBlockService && (sessionInBlock > 1 || totalAmount === 0);
+
+  const baseServicePrice = isSubsequentBlockSession && totalAmount === 0
+    ? 0
+    : (SERVICE_PRICES[appointment.service_type] || Math.max(0, totalAmount - adminFee + (hasVoucher ? 100000 : 0)));
 
   // UNDUH STRUK SEBAGAI GAMBAR PNG KE GALERI HP / LAPTOP
   const handleDownloadPng = async () => {
@@ -127,7 +137,11 @@ export default function ReceiptModal({
     msg += `*Handle By:* ${meta.handleBy}\n`;
     msg += `*Metode Bayar:* ${meta.paymentMethod}\n`;
     msg += `-------------------------------------------\n`;
-    msg += `Biaya Layanan: ${formatRupiah(baseServicePrice)}\n`;
+    if (isSubsequentBlockSession && baseServicePrice === 0) {
+      msg += `Biaya Layanan: Paket 1 Blok (Sesi #${sessionInBlock}/8) — Rp 0 (Termasuk Paket)\n`;
+    } else {
+      msg += `Biaya Layanan: ${formatRupiah(baseServicePrice)}\n`;
+    }
     if (hasVoucher) {
       msg += `Voucher Diskon (OPENING100K): -Rp 100.000\n`;
     }
@@ -135,7 +149,7 @@ export default function ReceiptModal({
       msg += `Overtime / Kelebihan Sesi (${meta.overtimeMinutes || 0} Menit): +${formatRupiah(meta.overtimeFee)}\n`;
     }
     msg += `Biaya Administrasi: ${formatRupiah(adminFee)}\n`;
-    msg += `*TOTAL ${isPaid ? 'BAYAR' : 'TAGIHAN'}: ${formatRupiah(totalAmount)}*\n`;
+    msg += `*TOTAL ${isPaid ? 'BAYAR' : 'TAGIHAN'}: ${totalAmount === 0 && isSubsequentBlockSession ? 'Rp 0 (Termasuk Paket Blok)' : formatRupiah(totalAmount)}*\n`;
     msg += `-------------------------------------------\n`;
     if (!isPaid) {
       msg += `Status: *MENUNGGU PEMBAYARAN*\n`;
@@ -222,8 +236,33 @@ export default function ReceiptModal({
             <div class="border-t border-b text-xs" style="margin: 10px 0; padding: 8px 0;">
               <div class="flex-between">
                 <span>Biaya Layanan / Sesi:</span>
-                <span>${formatRupiah(baseServicePrice)}</span>
+                <span>${isSubsequentBlockSession && baseServicePrice === 0 ? `Paket 1 Blok (Sesi #${sessionInBlock}/8) — Rp 0 (Termasuk Paket)` : formatRupiah(baseServicePrice)}</span>
               </div>
+
+              ${hasVoucher ? `
+                <div class="flex-between" style="color:#047857; font-weight:bold;">
+                  <span>Voucher Diskon (OPENING100K):</span>
+                  <span>- Rp 100.000</span>
+                </div>
+              ` : ''}
+
+              ${meta.overtimeFee > 0 ? `
+                <div class="flex-between" style="color:#92400E; font-weight:bold;">
+                  <span>Overtime / Kelebihan Sesi (${meta.overtimeMinutes || 0} Menit):</span>
+                  <span>+ ${formatRupiah(meta.overtimeFee)}</span>
+                </div>
+              ` : ''}
+
+              <div class="flex-between">
+                <span>Biaya Administrasi:</span>
+                <span>${formatRupiah(adminFee)}</span>
+              </div>
+
+              <div class="flex-between font-bold text-sm" style="color:#701A24; margin-top:6px; border-top:1px dashed #ccc; padding-top:6px;">
+                <span>TOTAL ${isPaid ? 'BAYAR' : 'TAGIHAN'}:</span>
+                <span>${totalAmount === 0 && isSubsequentBlockSession ? 'Rp 0 (Termasuk Paket Blok)' : formatRupiah(totalAmount)}</span>
+              </div>
+            </div>
 
               ${hasVoucher ? `
                 <div class="flex-between" style="color:#047857; font-weight:bold;">
@@ -421,7 +460,11 @@ export default function ReceiptModal({
           <div style={{ borderTop: '1px solid #EADFD5', borderBottom: '1px solid #EADFD5', padding: '8px 0', display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', fontFamily: 'sans-serif', marginBottom: '8px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', color: '#475569' }}>
               <span>Biaya Layanan / Sesi:</span>
-              <span>{formatRupiah(baseServicePrice)}</span>
+              <span>
+                {isSubsequentBlockSession && baseServicePrice === 0
+                  ? `Paket 1 Blok (Sesi #${sessionInBlock}/8) — Rp 0 (Termasuk Paket)`
+                  : formatRupiah(baseServicePrice)}
+              </span>
             </div>
 
             {hasVoucher && (
@@ -433,7 +476,7 @@ export default function ReceiptModal({
 
             {meta.overtimeFee > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', color: '#92400E', fontWeight: 'bold' }}>
-                <span>Overtime / Kelebihan Sesi ({meta.overtimeMinutes || 0} Menit):</span>
+                <span>Overtime / Kelebihan Sesi (${meta.overtimeMinutes || 0} Menit):</span>
                 <span>+ {formatRupiah(meta.overtimeFee)}</span>
               </div>
             )}
@@ -445,7 +488,7 @@ export default function ReceiptModal({
 
             <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '14px', color: '#701A24', paddingTop: '6px', borderTop: '1px dashed #EADFD5' }}>
               <span>TOTAL {isPaid ? 'BAYAR' : 'TAGIHAN'}:</span>
-              <span>{formatRupiah(totalAmount)}</span>
+              <span>{totalAmount === 0 && isSubsequentBlockSession ? 'Rp 0 (Termasuk Paket Blok)' : formatRupiah(totalAmount)}</span>
             </div>
           </div>
 

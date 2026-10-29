@@ -35,11 +35,14 @@ import {
   PAYMENT_METHODS,
   MASTER_VOUCHERS,
   MAX_OPENING_VOUCHER_QUOTA,
-  SERVICE_PRICES
+  SERVICE_PRICES,
+  THERAPIST_INCENTIVE_SERVICES,
+  THERAPIST_INCENTIVE_SESSION_THRESHOLD
 } from './lib/constants';
 import {
   buildAppointmentNotes,
   groupAppointmentsByPatient,
+  normalizePatientName,
   exportFinancialCsv,
   exportFinancialExcel,
   exportTherapistExcel,
@@ -174,7 +177,23 @@ export default function App() {
   const [showTherapistEditModal, setShowTherapistEditModal] = useState(false);
   const [therapistScheduleDate, setTherapistScheduleDate] = useState('');
   const [therapistScheduleTime, setTherapistScheduleTime] = useState('');
+  const [therapistScheduleService, setTherapistScheduleService] = useState('Terapi Anak Spesial');
   const [savingTherapistSession, setSavingTherapistSession] = useState(false);
+
+  // Persistence State: Menyimpan patientKey accordion yang sedang terbuka agar tidak reset saat background refresh
+  const [expandedPatientKeys, setExpandedPatientKeys] = useState(() => new Set());
+
+  const handleTogglePatientAccordion = useCallback((patientKey) => {
+    setExpandedPatientKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(patientKey)) {
+        next.delete(patientKey);
+      } else {
+        next.add(patientKey);
+      }
+      return next;
+    });
+  }, []);
 
   // ============================================================
   // 7. ROLE & PRIVILEGE CHECKS (MENDUKUNG SIMULATOR MASTER)
@@ -182,7 +201,11 @@ export default function App() {
   const activeRole = simulationPersona?.role || userRole;
   const activeName = simulationPersona?.name || userName;
 
-  const { hasMasterAccess } = accessFromRole(userRole);
+  // isRealMaster: akses UI eksklusif master (Switch View, Backup) — SELALU dari userRole asli
+  // hasMasterAccess: penentu sensor data pasien — FALSE saat simulationPersona aktif
+  //   agar sensor Frosted Glass bekerja 100% mengikuti POV yang dipilih.
+  const { hasMasterAccess: isRealMaster } = accessFromRole(userRole);
+  const hasMasterAccess = isRealMaster && !simulationPersona;
   const { hasAdminAccess, hasTherapistAccess, hasPsychologistAccess } =
     accessFromRole(activeRole);
 
@@ -255,26 +278,13 @@ export default function App() {
   const fetchAppointments = useCallback(async () => {
     setLoadingAppts(true);
     try {
-      let query = supabase
+      // Mengambil seluruh data pendaftaran klinik agar statistik & list lengkap dapat diakses seluruh tim,
+      // sedangkan batasan privasi data rekam medis & identitas diatur oleh sensor komponen PatientAccordionRow
+      const { data, error } = await supabase
         .from('appointments')
         .select('*')
         .order('booking_date', { ascending: true });
 
-      // Jika role murni psikolog (bukan admin), filter hanya pasien miliknya
-      if (hasPsychologistAccess && !hasAdminAccess) {
-        const me = LIST_PSIKOLOG.find((p) =>
-          p.keywords.some((key) => activeName.toLowerCase().includes(key))
-        );
-        if (me) {
-          query = query.ilike('doctor_name', `%${me.keywords[0]}%`);
-        }
-      } else if (hasTherapistAccess && !hasAdminAccess) {
-        // Jika role murni terapis, filter pasien yang ditugaskan padanya
-        const firstName = activeName.split(' ')[0];
-        query = query.ilike('assigned_terapis', `%${firstName}%`);
-      }
-
-      const { data, error } = await query;
       if (error) throw error;
       setAppointmentsList(data || []);
     } catch (err) {
@@ -282,7 +292,7 @@ export default function App() {
     } finally {
       setLoadingAppts(false);
     }
-  }, [hasPsychologistAccess, hasAdminAccess, hasTherapistAccess, activeName]);
+  }, []);
 
   const loadUserProfile = useCallback(async (currentSession) => {
     if (!currentSession) {
@@ -568,10 +578,25 @@ export default function App() {
       const nextVisit = pg.totalSessions + 1;
       const latest = pg.latestSession;
 
-      // Harga dasar layanan terapis
-      const calculatedPrice = SERVICE_PRICES[therapistSessionData.serviceType] || Number(latest?.price || 150000);
+      // Deteksi apakah layanan termasuk paket blok 8 pertemuan
+      const isBlockPackage = THERAPIST_INCENTIVE_SERVICES.some((svc) =>
+        therapistSessionData.serviceType.toLowerCase().includes(svc.toLowerCase())
+      );
+      const sessionInBlock = ((nextVisit - 1) % 8) + 1;
+      const isSubsequentInBlock = isBlockPackage && sessionInBlock > 1;
 
-      const therapistLogNote = `[SESI MANDIRI TERAPIS]\nDitambahkan mandiri oleh: ${activeName}\nLayanan: ${therapistSessionData.serviceType}\nCatatan: ${therapistSessionData.notes || 'Sesi lanjutan terapi'}`;
+      // Harga dasar layanan terapis
+      let calculatedPrice = 0;
+      let sessionStatus = 'dirujuk_terapis';
+
+      if (isSubsequentInBlock) {
+        calculatedPrice = 0;
+        sessionStatus = 'lunas'; // Sesi lanjutan dalam paket blok otomatis berstatus lunas
+      } else {
+        calculatedPrice = SERVICE_PRICES[therapistSessionData.serviceType] || Number(latest?.price || 150000);
+      }
+
+      const therapistLogNote = `[SESI MANDIRI TERAPIS]\nDitambahkan mandiri oleh: ${activeName}\nLayanan: ${therapistSessionData.serviceType}\nCatatan: ${therapistSessionData.notes || 'Sesi lanjutan terapi'}${isSubsequentInBlock ? ` (Termasuk Paket Blok 8 Pertemuan - Sesi #${sessionInBlock}/8)` : ''}`;
 
       const { error } = await supabase.from('appointments').insert([
         {
@@ -581,7 +606,7 @@ export default function App() {
           assigned_terapis: activeName,
           booking_date: therapistSessionData.bookingDate,
           booking_time: therapistSessionData.bookingTime || 'Sesuai Janji',
-          status: 'dirujuk_terapis',
+          status: sessionStatus,
           service_type: therapistSessionData.serviceType,
           category: therapistSessionData.serviceType,
           notes: therapistLogNote,
@@ -596,7 +621,13 @@ export default function App() {
 
       alert(`Sesi ke-${nextVisit} untuk pasien ${pg.patientName} berhasil ditambahkan oleh Terapis ${activeName.split(' ')[0]}!`);
       setShowTherapistSessionForm(false);
-      fetchAppointments();
+
+      // Pertahankan posisi accordion pasien tetap terbuka & tidak reset/redirect ke awal
+      if (pg.patientKey) {
+        setExpandedPatientKeys((prev) => new Set([...prev, pg.patientKey]));
+      }
+
+      await fetchAppointments();
     } catch (err) {
       alert(`Gagal menambahkan sesi terapi: ${err.message}`);
     } finally {
@@ -608,6 +639,7 @@ export default function App() {
     setTherapistEditTarget(item);
     setTherapistScheduleDate(item.booking_date || new Date().toISOString().slice(0, 10));
     setTherapistScheduleTime(item.booking_time || '09:00 WIB');
+    setTherapistScheduleService(item.service_type || item.category || 'Terapi Anak Spesial');
     setShowTherapistEditModal(true);
   };
 
@@ -619,15 +651,24 @@ export default function App() {
         .from('appointments')
         .update({
           booking_date: therapistScheduleDate,
-          booking_time: therapistScheduleTime
+          booking_time: therapistScheduleTime,
+          service_type: therapistScheduleService,
+          category: therapistScheduleService
         })
         .eq('id', therapistEditTarget.id);
 
       if (error) throw error;
 
-      alert('Jadwal sesi terapi berhasil diperbarui!');
+      alert('Jadwal dan layanan sesi terapi berhasil diperbarui!');
       setShowTherapistEditModal(false);
-      fetchAppointments();
+
+      // Pertahankan posisi accordion pasien tetap terbuka & tidak reset/redirect ke awal
+      const targetKey = normalizePatientName(therapistEditTarget.patient_name || '');
+      if (targetKey) {
+        setExpandedPatientKeys((prev) => new Set([...prev, targetKey]));
+      }
+
+      await fetchAppointments();
     } catch (err) {
       alert(`Gagal memperbarui jadwal: ${err.message}`);
     } finally {
@@ -818,6 +859,10 @@ export default function App() {
     return appointmentsList.filter((item) => {
       const docName = item.doctor_name || '';
 
+      if (activeTab === 'all') {
+        return true;
+      }
+
       if (activeTab === 'direct') {
         return docName === 'Layanan Langsung Terapis';
       }
@@ -955,8 +1000,8 @@ export default function App() {
                 </button>
               )}
 
-              {/* FITUR KHUSUS MASTER: SWITCH VIEW SIMULATOR */}
-              {hasMasterAccess && (
+              {/* FITUR KHUSUS MASTER: SWITCH VIEW SIMULATOR — tampil selama akun asli Master (isRealMaster) */}
+              {isRealMaster && (
                 <div className="relative inline-block">
                   <select
                     value={simulationPersona ? `${simulationPersona.role}:${simulationPersona.name}` : 'default'}
@@ -1091,8 +1136,8 @@ export default function App() {
                 </span>
               </div>
 
-              {/* FITUR KHUSUS MASTER DI MOBILE */}
-              {hasMasterAccess && (
+              {/* FITUR KHUSUS MASTER DI MOBILE — tampil selama akun asli Master (isRealMaster) */}
+              {isRealMaster && (
                 <div className="space-y-2 pt-1">
                   <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Akses Master IT:</p>
                   <select
@@ -1311,6 +1356,22 @@ export default function App() {
                 
                 {/* 1. NAVIGASI TAB UTAMA */}
                 <div className="flex flex-wrap gap-2 mb-6 border-b border-[#EADFD5] pb-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('all');
+                      setSelectedDateFilter('');
+                    }}
+                    className={`px-4 py-2.5 rounded-2xl font-bold text-xs transition flex items-center gap-2 border shadow-xs ${
+                      activeTab === 'all'
+                        ? 'bg-slate-800 text-white border-slate-800 shadow-sm'
+                        : 'bg-white text-gray-700 border-[#EADFD5] hover:border-slate-400 hover:bg-slate-50'
+                    }`}
+                  >
+                    <UserIcon className={`w-4 h-4 ${activeTab === 'all' ? 'text-white' : 'text-slate-600'}`} />
+                    <span>Semua Pasien ({appointmentsList.length})</span>
+                  </button>
+
                   {LIST_PSIKOLOG.map((p, idx) => (
                     <button
                       key={p.id}
@@ -1399,6 +1460,8 @@ export default function App() {
                       <PatientAccordionRow
                         key={group.patientKey}
                         patientGroup={group}
+                        isExpanded={expandedPatientKeys.has(group.patientKey)}
+                        onToggle={() => handleTogglePatientAccordion(group.patientKey)}
                         userRole={activeRole}
                         userName={activeName}
                         hasMasterAccess={hasMasterAccess}
@@ -1406,6 +1469,7 @@ export default function App() {
                         hasPsychologistAccess={hasPsychologistAccess}
                         hasTherapistAccess={hasTherapistAccess}
                         matchesTherapistAssignment={matchesTherapistAssignment}
+                        isSimulatingRole={isRealMaster && !!simulationPersona}
                         onOpenMedicalModal={handleOpenMedicalModal}
                         onOpenTherapyModal={handleOpenTherapyModal}
                         onOpenEditModal={handleOpenEditModal}
@@ -1473,6 +1537,7 @@ export default function App() {
           <EditAppointmentModal
             appointment={selectedAppt}
             activeTherapistList={activeTherapistList}
+            isTherapist={hasTherapistAccess && !hasAdminAccess}
             onClose={() => setShowEditModal(false)}
             onSave={handleSaveEditAppointment}
           />
@@ -1618,7 +1683,7 @@ export default function App() {
                   Kunjungan Ke-{therapistEditTarget.visit_number} • {therapistEditTarget.service_type || therapistEditTarget.category}
                 </p>
                 <p className="text-[10px] text-blue-700 font-semibold mt-1">
-                  🔒 Batasan Akses: Hanya tanggal & jam yang dapat disesuaikan oleh Terapis.
+                  🔒 Batasan Akses: Hanya tanggal, jam, dan layanan terapi anak yang dapat disesuaikan oleh Terapis.
                 </p>
               </div>
 
@@ -1648,6 +1713,22 @@ export default function App() {
                     onChange={(e) => setTherapistScheduleTime(e.target.value)}
                     className="w-full px-3.5 py-2 border border-gray-300 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-600 bg-white"
                   />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    Layanan Terapi Anak
+                  </label>
+                  <select
+                    value={therapistScheduleService}
+                    onChange={(e) => setTherapistScheduleService(e.target.value)}
+                    className="w-full px-3.5 py-2 border border-gray-300 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-600 bg-white font-medium"
+                  >
+                    <option value="Terapi Anak Spesial">Terapi Anak Spesial (Rp 150.000/sesi)</option>
+                    <option value="Kelas Anak Usia Dini (Pra-Literasi)">Kelas Anak Usia Dini / Pra-Literasi (Rp 500.000/blok)</option>
+                    <option value="Bimbingan Belajar Intensif SD">Bimbingan Belajar Intensif SD (Rp 600.000/8 pertemuan)</option>
+                    <option value="Shadow Teacher">Shadow Teacher (Sesuai Kebutuhan)</option>
+                  </select>
                 </div>
               </div>
 

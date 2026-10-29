@@ -23,6 +23,8 @@ import { exportPsychologistReportDocx, exportTherapistProgressDocx } from '../li
 export default function PatientAccordionRow({
   patientGroup,
   isOpenDefault = false,
+  isExpanded,
+  onToggle,
   userRole,
   userName,
   hasMasterAccess = false,
@@ -30,6 +32,7 @@ export default function PatientAccordionRow({
   hasPsychologistAccess,
   hasTherapistAccess,
   matchesTherapistAssignment,
+  isSimulatingRole = false,
   onOpenMedicalModal,
   onOpenTherapyModal,
   onOpenEditModal,
@@ -40,7 +43,16 @@ export default function PatientAccordionRow({
   onTherapistEditSchedule
 }) {
 
-  const [isOpen, setIsOpen] = useState(isOpenDefault);
+  const [localIsOpen, setLocalIsOpen] = useState(isOpenDefault);
+  const isOpen = typeof isExpanded === 'boolean' ? isExpanded : localIsOpen;
+
+  const handleToggleAccordion = () => {
+    if (onToggle) {
+      onToggle();
+    } else {
+      setLocalIsOpen(!localIsOpen);
+    }
+  };
 
   const {
     patientName,
@@ -62,6 +74,32 @@ export default function PatientAccordionRow({
     return at && un && (at.includes(un) || un.includes(at));
   });
 
+  // Cek apakah pasien ini ditugaskan ke psikolog yang sedang login
+  const isAssignedToThisPsychologist = sessions.some((s) => {
+    const docLower = (s.doctor_name || '').toLowerCase();
+    const currentNameLower = (userName || '').toLowerCase();
+    return (
+      LIST_PSIKOLOG.some((p) => {
+        const matchesUser = p.keywords.some((k) => currentNameLower.includes(k));
+        const matchesDoc = p.keywords.some((k) => docLower.includes(k));
+        return matchesUser && matchesDoc;
+      }) || docLower.includes(currentNameLower)
+    );
+  });
+
+  // Aturan Sensor Privasi Data Pasien Antar-Role:
+  // - Master IT & Admin: Akses penuh tanpa sensor identitas
+  // - Psikolog: Hanya akses penuh untuk pasien rujukan/binaan miliknya; pasien rekan lain tersensor
+  // - Terapis: Hanya akses penuh untuk pasien rujukan/binaan miliknya; pasien rekan lain tersensor
+  let canViewPatientIdentity = false;
+  if (hasMasterAccess || hasAdminAccess) {
+    canViewPatientIdentity = true;
+  } else if (hasPsychologistAccess && isAssignedToThisPsychologist) {
+    canViewPatientIdentity = true;
+  } else if (hasTherapistAccess && isAssignedToThisTherapist) {
+    canViewPatientIdentity = true;
+  }
+
   // ── Incentive Session Indicator (hanya untuk Terapis & Master) ──
   const incentiveSessions = sessions.filter(s => {
     const st = (s.service_type || s.category || '').toLowerCase();
@@ -77,7 +115,7 @@ export default function PatientAccordionRow({
     <div className="border border-[#EADFD5] rounded-2xl overflow-hidden bg-white shadow-xs hover:shadow-md transition-all duration-200">
       {/* HEADER CARD SINGLE ROW (KLIK UNTUK BUKA/TUTUP ACCORDION) */}
       <div
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={handleToggleAccordion}
         className="p-4 sm:p-5 cursor-pointer bg-white hover:bg-[#FAF8F5]/80 transition-colors flex flex-col md:flex-row md:items-center justify-between gap-3 select-none"
       >
         {/* Kolom Kiri: Nama Pasien, Usia, Telepon, & Tag Jumlah Sesi */}
@@ -88,9 +126,20 @@ export default function PatientAccordionRow({
 
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <h4 className="font-serif font-bold text-base text-gray-900 leading-tight">
-                {patientName}
-              </h4>
+              {canViewPatientIdentity ? (
+                <h4 className="font-serif font-bold text-base text-gray-900 leading-tight">
+                  {patientName}
+                </h4>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="font-mono font-bold text-sm text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded-lg border border-slate-300 select-none tracking-widest">
+                    ████████
+                  </span>
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                    🔒 Pasien Terproteksi ({hasTherapistAccess ? 'Terapis/Psikolog Lain' : 'Psikolog/Terapis Lain'})
+                  </span>
+                </div>
+              )}
               <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
                 {age ? `${age} Tahun` : 'Usia -'}
               </span>
@@ -103,7 +152,7 @@ export default function PatientAccordionRow({
               {phone && (
                 <span className="flex items-center gap-1 text-slate-600">
                   <PhoneIcon className="w-3.5 h-3.5 text-gray-400" />
-                  {phone}
+                  {canViewPatientIdentity ? phone : '0812-••••-••••'}
                 </span>
               )}
               {latestSession && (
@@ -114,7 +163,7 @@ export default function PatientAccordionRow({
               )}
               {latestSession?.doctor_name && (
                 <span className="text-gray-500">
-                  PJ: <strong className="text-gray-700">{latestSession.doctor_name.split(',')[0]}</strong>
+                  PJ: <strong className="text-gray-700">{canViewPatientIdentity ? latestSession.doctor_name.split(',')[0] : 'Tenaga Medis Terkait'}</strong>
                 </span>
               )}
             </div>
@@ -135,8 +184,8 @@ export default function PatientAccordionRow({
             </span>
           )}
 
-          {/* Badge Insentif Terapis - hanya tampil untuk Terapis & Master jika layanan insentif */}
-          {(hasTherapistAccess || hasMasterAccess) && isIncentiveService && (
+          {/* Badge Insentif Terapis - hanya tampil untuk Terapis & Master jika layanan insentif dan pasien milik sendiri */}
+          {canViewPatientIdentity && (hasTherapistAccess || hasMasterAccess) && isIncentiveService && (
             <span
               className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${
                 incentiveReady
@@ -165,20 +214,30 @@ export default function PatientAccordionRow({
             </button>
           )}
 
-          {/* Tombol Mandiri Terapis: Tambah Sesi untuk Pasien Binaan */}
-          {hasTherapistAccess && isAssignedToThisTherapist && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                if (onTherapistAddSession) onTherapistAddSession(patientGroup);
-              }}
-              title="Tambah Sesi Terapi Mandiri untuk Pasien Ini"
-              className="px-3 py-1.5 bg-blue-600/10 hover:bg-blue-700 text-blue-700 hover:text-white rounded-xl text-xs font-semibold transition flex items-center gap-1.5 border border-blue-300/60 active:scale-95 shadow-2xs"
-            >
-              <PlusIcon className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">+ Sesi Terapi</span>
-            </button>
+          {/* Tombol Mandiri Terapis: Tambah Sesi untuk Pasien Binaan (Hanya jika berhak akses) */}
+          {/* isSimulatingRole: saat Master simulasi POV terapis, tombol dikunci (View-Only Mode) */}
+          {canViewPatientIdentity && hasTherapistAccess && isAssignedToThisTherapist && (
+            isSimulatingRole ? (
+              <span
+                className="px-3 py-1.5 bg-slate-100 text-slate-500 rounded-xl text-xs font-semibold border border-slate-200 flex items-center gap-1.5 cursor-not-allowed select-none"
+                title="Mode Simulasi: Aksi Tambah Sesi tidak tersedia saat Switch View aktif"
+              >
+                👁 View Only
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (onTherapistAddSession) onTherapistAddSession(patientGroup);
+                }}
+                title="Tambah Sesi Terapi Mandiri untuk Pasien Ini"
+                className="px-3 py-1.5 bg-blue-600/10 hover:bg-blue-700 text-blue-700 hover:text-white rounded-xl text-xs font-semibold transition flex items-center gap-1.5 border border-blue-300/60 active:scale-95 shadow-2xs"
+              >
+                <PlusIcon className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">+ Sesi Terapi</span>
+              </button>
+            )
           )}
 
           <div className="w-8 h-8 rounded-xl bg-gray-100 flex items-center justify-center text-gray-600 group-hover:bg-[#701A24]/10 group-hover:text-[#701A24] transition">
@@ -233,6 +292,13 @@ export default function PatientAccordionRow({
               const baseServicePrice = Math.max(0, itemTotalPrice - itemAdminFee + (hasVoucher ? 100000 : 0));
               const isPaid = item.status === 'lunas';
 
+              // Deteksi layanan paket per blok (8 sesi)
+              const isBlockService = THERAPIST_INCENTIVE_SERVICES.some((svc) =>
+                (item.service_type || item.category || '').toLowerCase().includes(svc.toLowerCase())
+              );
+              const sessionInBlock = ((Number(item.visit_number || 1) - 1) % 8) + 1;
+              const isSubsequentBlockSession = isBlockService && (sessionInBlock > 1 || baseServicePrice === 0);
+
               return (
                 <div
                   key={item.id || idx}
@@ -247,9 +313,11 @@ export default function PatientAccordionRow({
                           Kunjungan Ke-{item.visit_number || (idx + 1)}
                         </span>
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider ${
-                          isPaid ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                          (isPaid || (isSubsequentBlockSession && itemTotalPrice === 0))
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : 'bg-amber-100 text-amber-800'
                         }`}>
-                          {isPaid ? 'Lunas' : 'Pending'}
+                          {isPaid ? 'Lunas' : (isSubsequentBlockSession && itemTotalPrice === 0 ? 'Lunas (Paket Blok)' : 'Pending')}
                         </span>
                       </div>
 
@@ -291,7 +359,11 @@ export default function PatientAccordionRow({
                       <div className="bg-[#FAF8F5] p-3 rounded-xl border border-[#EADFD5] space-y-1 font-mono">
                         <div className="flex justify-between text-gray-600 text-[11px]">
                           <span>Biaya Layanan:</span>
-                          <span>{formatRupiah(baseServicePrice)}</span>
+                          <span>
+                            {isSubsequentBlockSession && baseServicePrice === 0
+                              ? `Rp 0 (Paket 1 Blok #${sessionInBlock}/8)`
+                              : formatRupiah(baseServicePrice)}
+                          </span>
                         </div>
                         {hasVoucher && (
                           <div className="flex justify-between text-emerald-700 text-[11px] font-bold">
@@ -311,7 +383,11 @@ export default function PatientAccordionRow({
                         )}
                         <div className="flex justify-between font-bold text-xs text-[#701A24] pt-1 border-t border-dashed border-[#EADFD5]">
                           <span>Total Tagihan:</span>
-                          <span>{formatRupiah(itemTotalPrice)}</span>
+                          <span>
+                            {itemTotalPrice === 0 && isSubsequentBlockSession
+                              ? 'Rp 0 (Termasuk Paket Blok)'
+                              : formatRupiah(itemTotalPrice)}
+                          </span>
                         </div>
                       </div>
 
@@ -325,87 +401,123 @@ export default function PatientAccordionRow({
                     {/* Kolom 4: Tombol Aksi Sesi Ini */}
                     <div className="lg:col-span-3 space-y-1.5 pt-1">
                       
-                      {/* Tombol Rekam Medis (Khusus Psikolog) */}
-                      {hasPsychologistAccess && !isDirectTherapy && isMyPsychologistPatient && (
-                        <button
-                          type="button"
-                          onClick={() => onOpenMedicalModal(item)}
-                          className="w-full px-3 py-1.5 bg-[#701A24] text-white rounded-lg text-xs font-semibold hover:bg-[#54121B] flex items-center justify-center gap-1.5 transition shadow-xs"
-                        >
-                          <StethoscopeIcon className="w-3.5 h-3.5" />
-                          Rekam Medis & Selesai
-                        </button>
-                      )}
-
-                      {/* Tombol Progress Terapi (Khusus Terapis) */}
-                      {hasTherapistAccess && isMyTherapistPatient && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => onOpenTherapyModal(item)}
-                            className="w-full px-3 py-1.5 bg-blue-700 text-white rounded-lg text-xs font-semibold hover:bg-blue-800 flex items-center justify-center gap-1.5 transition shadow-xs"
-                          >
-                            <EditIcon className="w-3.5 h-3.5" />
-                            Progress Terapi
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => onTherapistEditSchedule && onTherapistEditSchedule(item)}
-                            className="w-full px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition active:scale-95 shadow-2xs"
-                          >
-                            <CalendarIcon className="w-3.5 h-3.5 text-blue-700" />
-                            Edit Jadwal Sesi
-                          </button>
-                        </>
-                      )}
-
-                      {/* Tombol Cetak / Lihat Nota Invoice (Admin) */}
-                      {hasAdminAccess && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => onOpenReceiptModal(item)}
-                            className={`w-full px-3 py-1.5 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition shadow-xs ${
-                              isPaid ? 'bg-emerald-700 hover:bg-emerald-800' : 'bg-[#701A24] hover:bg-[#54121B]'
-                            }`}
-                          >
-                            <ReceiptIcon className="w-3.5 h-3.5" />
-                            {isPaid ? 'Lihat Nota Lunas' : 'Invoice & Cetak'}
-                          </button>
-
-                          <div className="grid grid-cols-2 gap-1.5 pt-0.5">
-                            <button
-                              type="button"
-                              onClick={() => onOpenEditModal(item)}
-                              className="px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1 transition"
-                            >
-                              <EditIcon className="w-3 h-3" />
-                              Edit
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => onDeleteSession(item.id)}
-                              className="px-2 py-1 bg-red-50 hover:bg-red-100 text-red-700 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1 transition"
-                            >
-                              <TrashIcon className="w-3 h-3" />
-                              Hapus
-                            </button>
+                      {!canViewPatientIdentity ? (
+                        <div className="p-3 bg-slate-100 rounded-xl border border-slate-200 text-center space-y-1">
+                          <div className="flex items-center justify-center gap-1.5 text-slate-600 font-bold text-xs">
+                            <LockIcon className="w-3.5 h-3.5 text-slate-500" />
+                            <span>Akses Terproteksi</span>
                           </div>
-                        </>
-                      )}
+                          <p className="text-[10px] text-slate-500 leading-tight">
+                            Aksi & rincian biaya dikhususkan bagi Penanggung Jawab Pasien atau Admin.
+                          </p>
+                        </div>
+                      ) : (
+                        <>
+                          {/* Tombol Rekam Medis (Khusus Psikolog) */}
+                          {/* isSimulatingRole: dikunci saat Master simulasi POV — mode View-Only */}
+                          {hasPsychologistAccess && !isDirectTherapy && isMyPsychologistPatient && (
+                            isSimulatingRole ? (
+                              <span
+                                className="w-full px-3 py-1.5 bg-slate-100 text-slate-500 rounded-lg text-xs font-semibold border border-slate-200 flex items-center justify-center gap-1.5 cursor-not-allowed select-none"
+                                title="Mode Simulasi: Aksi Rekam Medis tidak tersedia saat Switch View aktif"
+                              >
+                                👁 Mode Simulasi (View Only)
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => onOpenMedicalModal(item)}
+                                className="w-full px-3 py-1.5 bg-[#701A24] text-white rounded-lg text-xs font-semibold hover:bg-[#54121B] flex items-center justify-center gap-1.5 transition shadow-xs"
+                              >
+                                <StethoscopeIcon className="w-3.5 h-3.5" />
+                                Rekam Medis & Selesai
+                              </button>
+                            )
+                          )}
 
-                      {/* Terapis/Psikolog yang ingin cetak nota jika diperbolehkan */}
-                      {!hasAdminAccess && (
-                        <button
-                          type="button"
-                          onClick={() => onOpenReceiptModal(item)}
-                          className="w-full px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition"
-                        >
-                          <ReceiptIcon className="w-3.5 h-3.5" />
-                          Lihat Rincian Biaya
-                        </button>
+
+                          {/* Tombol Progress Terapi & Edit Jadwal (Khusus Terapis) */}
+                          {/* isSimulatingRole: dikunci saat Master simulasi POV — mode View-Only */}
+                          {hasTherapistAccess && isMyTherapistPatient && (
+                            isSimulatingRole ? (
+                              <span
+                                className="w-full px-3 py-1.5 bg-slate-100 text-slate-500 rounded-lg text-xs font-semibold border border-slate-200 flex items-center justify-center gap-1.5 cursor-not-allowed select-none"
+                                title="Mode Simulasi: Aksi Terapis tidak tersedia saat Switch View aktif"
+                              >
+                                👁 Mode Simulasi (View Only)
+                              </span>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => onOpenTherapyModal(item)}
+                                  className="w-full px-3 py-1.5 bg-blue-700 text-white rounded-lg text-xs font-semibold hover:bg-blue-800 flex items-center justify-center gap-1.5 transition shadow-xs"
+                                >
+                                  <EditIcon className="w-3.5 h-3.5" />
+                                  Progress Terapi
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => onTherapistEditSchedule && onTherapistEditSchedule(item)}
+                                  className="w-full px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition active:scale-95 shadow-2xs"
+                                >
+                                  <CalendarIcon className="w-3.5 h-3.5 text-blue-700" />
+                                  Edit Jadwal Sesi
+                                </button>
+                              </>
+                            )
+                          )}
+
+
+                          {/* Tombol Cetak / Lihat Nota Invoice (Admin) */}
+                          {hasAdminAccess && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => onOpenReceiptModal(item)}
+                                className={`w-full px-3 py-1.5 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition shadow-xs ${
+                                  isPaid ? 'bg-emerald-700 hover:bg-emerald-800' : 'bg-[#701A24] hover:bg-[#54121B]'
+                                }`}
+                              >
+                                <ReceiptIcon className="w-3.5 h-3.5" />
+                                {isPaid ? 'Lihat Nota Lunas' : 'Invoice & Cetak'}
+                              </button>
+
+                              <div className="grid grid-cols-2 gap-1.5 pt-0.5">
+                                <button
+                                  type="button"
+                                  onClick={() => onOpenEditModal(item)}
+                                  className="px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1 transition"
+                                >
+                                  <EditIcon className="w-3 h-3" />
+                                  Edit
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => onDeleteSession(item.id)}
+                                  className="px-2 py-1 bg-red-50 hover:bg-red-100 text-red-700 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1 transition"
+                                >
+                                  <TrashIcon className="w-3 h-3" />
+                                  Hapus
+                                </button>
+                              </div>
+                            </>
+                          )}
+
+                          {/* Terapis/Psikolog yang ingin cetak nota jika diperbolehkan */}
+                          {!hasAdminAccess && (
+                            <button
+                              type="button"
+                              onClick={() => onOpenReceiptModal(item)}
+                              className="w-full px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition"
+                            >
+                              <ReceiptIcon className="w-3.5 h-3.5" />
+                              Lihat Rincian Biaya
+                            </button>
+                          )}
+                        </>
                       )}
 
                     </div>
@@ -481,7 +593,9 @@ export default function PatientAccordionRow({
                             <span>🔒 Terkunci (Privasi Medis)</span>
                           </p>
                           <p className="text-[11px] text-amber-800 mt-0.5 leading-relaxed">
-                            Catatan Anamnesa, Diagnosa Klinis, dan Progress Terapi bersifat konfidensial dan disamarkan dari Admin. Akses penuh hanya terbuka bagi Tenaga Medis (Psikolog/Terapis) atau Master IT.
+                            {hasAdminAccess
+                              ? 'Catatan Anamnesa, Diagnosa Klinis, dan Progress Terapi bersifat konfidensial dan disamarkan dari Admin. Akses penuh hanya terbuka bagi Tenaga Medis (Psikolog/Terapis) atau Master IT.'
+                              : 'Catatan Anamnesa, Diagnosa Klinis, dan Progress Terapi bersifat konfidensial dan hanya dapat diakses oleh Tenaga Medis Penanggung Jawab Pasien atau Master IT.'}
                           </p>
                         </div>
                       </div>

@@ -8,7 +8,7 @@ import {
   CheckIcon,
   ClockIcon
 } from './icons';
-import { ADMIN_HANDLERS, PAYMENT_METHODS, LIST_PSIKOLOG, SERVICE_PRICES } from '../lib/constants';
+import { ADMIN_HANDLERS, PAYMENT_METHODS, LIST_PSIKOLOG, SERVICE_PRICES, THERAPIST_INCENTIVE_SERVICES } from '../lib/constants';
 import { formatRupiah } from '../lib/helpers';
 
 export default function PatientForm({
@@ -47,6 +47,28 @@ export default function PatientForm({
   } = formData;
 
   const handleChange = (field, value) => {
+    if (field === 'visitNumber') {
+      const vNum = Number(value) || 1;
+      const isBlockPackage = THERAPIST_INCENTIVE_SERVICES.some((svc) =>
+        (serviceTypeInput || '').toLowerCase().includes(svc.toLowerCase())
+      );
+      const sessionInBlock = ((vNum - 1) % 8) + 1;
+      let newPrice = customServicePrice;
+      if (isBlockPackage) {
+        if (sessionInBlock > 1) {
+          newPrice = 0;
+        } else {
+          newPrice = SERVICE_PRICES[serviceTypeInput] || 500000;
+        }
+      }
+      setFormData((prev) => ({
+        ...prev,
+        visitNumber: value,
+        customServicePrice: newPrice
+      }));
+      return;
+    }
+
     setFormData((prev) => ({
       ...prev,
       [field]: value
@@ -54,7 +76,15 @@ export default function PatientForm({
   };
 
   const handleSelectService = (selectedService) => {
-    const price = SERVICE_PRICES[selectedService] || 0;
+    const isBlockPackage = THERAPIST_INCENTIVE_SERVICES.some((svc) =>
+      selectedService.toLowerCase().includes(svc.toLowerCase())
+    );
+    const sessionInBlock = ((Number(visitNumber || 1) - 1) % 8) + 1;
+    let price = SERVICE_PRICES[selectedService] || 0;
+    if (isBlockPackage && sessionInBlock > 1) {
+      price = 0; // Termasuk ke dalam paket 1 blok 8 pertemuan yang telah dibayar di awal
+    }
+
     setFormData((prev) => ({
       ...prev,
       serviceTypeInput: selectedService,
