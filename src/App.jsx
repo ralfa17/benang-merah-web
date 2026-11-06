@@ -10,6 +10,8 @@ import MedicalRecordModal from './components/MedicalRecordModal';
 import TherapyProgressModal from './components/TherapyProgressModal';
 import ReceiptModal from './components/ReceiptModal';
 import EditAppointmentModal from './components/EditAppointmentModal';
+import AdminShiftReport from './components/AdminShiftReport';
+import MonthlyRekapModal from './components/MonthlyRekapModal';
 import InstallPrompt from './components/InstallPrompt';
 import {
   DownloadIcon,
@@ -21,7 +23,9 @@ import {
   RefreshCwIcon,
   ShieldCheckIcon,
   MenuIcon,
-  CloseIcon
+  CloseIcon,
+  ClipboardListIcon,
+  BarChartIcon
 } from './components/icons';
 import {
   ROLE_LABELS,
@@ -43,7 +47,6 @@ import {
   buildAppointmentNotes,
   groupAppointmentsByPatient,
   normalizePatientName,
-  exportFinancialCsv,
   exportFinancialExcel,
   exportTherapistExcel,
   exportPsychologistExcel
@@ -162,6 +165,8 @@ export default function App() {
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [receiptType, setReceiptType] = useState('invoice');
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showShiftReport, setShowShiftReport] = useState(false);
+  const [showMonthlyRekap, setShowMonthlyRekap] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // State untuk Fitur Kemandirian Terapis (Input Sesi & Edit Jadwal Mandiri)
@@ -411,40 +416,19 @@ export default function App() {
     const code = formData.voucherInput.trim().toUpperCase();
     if (!code) return;
 
+    if (code === 'OPENING100K') {
+      setFormData((prev) => ({ ...prev, discountApplied: 0 }));
+      setVoucherMsg('Promo OPENING100K telah berakhir karena telah berganti bulan.');
+      return;
+    }
+
     if (MASTER_VOUCHERS[code]) {
-      setCheckingVoucher(true);
-      try {
-        if (code === 'OPENING100K') {
-          const { data, error } = await supabase
-            .from('appointments')
-            .select('id')
-            .ilike('notes', '%OPENING100K%');
-
-          if (error) throw error;
-
-          const usedCount = data ? data.length : 0;
-          if (usedCount >= MAX_OPENING_VOUCHER_QUOTA) {
-            setFormData((prev) => ({ ...prev, discountApplied: 0 }));
-            setVoucherMsg(`Kuota voucher ${code} sudah HABIS (Telah digunakan ${usedCount}/${MAX_OPENING_VOUCHER_QUOTA} kali).`);
-          } else {
-            const discountValue = MASTER_VOUCHERS[code];
-            setFormData((prev) => ({ ...prev, discountApplied: discountValue }));
-            setVoucherMsg(`Voucher ${code} Berhasil! Diskon Rp ${discountValue.toLocaleString('id-ID')} (Sisa Kuota: ${MAX_OPENING_VOUCHER_QUOTA - usedCount - 1}x lagi)`);
-          }
-        } else {
-          const discountValue = MASTER_VOUCHERS[code];
-          setFormData((prev) => ({ ...prev, discountApplied: discountValue }));
-          setVoucherMsg(`Voucher ${code} (Diskon Rp ${discountValue.toLocaleString('id-ID')}) Diterapkan!`);
-        }
-      } catch (err) {
-        console.error('Gagal verifikasi voucher:', err.message);
-        setVoucherMsg('Terjadi kesalahan saat memverifikasi kuota voucher.');
-      } finally {
-        setCheckingVoucher(false);
-      }
+      const discountValue = MASTER_VOUCHERS[code];
+      setFormData((prev) => ({ ...prev, discountApplied: discountValue }));
+      setVoucherMsg(`Voucher ${code} (Diskon Rp ${discountValue.toLocaleString('id-ID')}) Diterapkan!`);
     } else {
       setFormData((prev) => ({ ...prev, discountApplied: 0 }));
-      setVoucherMsg('Kode voucher tidak valid.');
+      setVoucherMsg('Kode voucher tidak valid atau masa berlaku telah berakhir.');
     }
   };
 
@@ -857,6 +841,35 @@ export default function App() {
   // ============================================================
   const tabAppointments = useMemo(() => {
     return appointmentsList.filter((item) => {
+      // 1. STRICT POV ISOLATION UNTUK NAKES (Psikolog & Terapis)
+      // Master IT saat mode default (hasMasterAccess=true) & Admin memiliki akses penuh tanpa pembatasan nakes.
+      // Saat Master memilih SIMULASI POV Nakes (hasMasterAccess=false), DILARANG BYPASS: Tampilan wajib 100% persis POV Nakes yang disimulasikan!
+      if (!hasMasterAccess && !hasAdminAccess) {
+        if (hasPsychologistAccess) {
+          const docLower = (item.doctor_name || '').toLowerCase();
+          const nameLower = (activeName || userName).toLowerCase();
+          const isMyPatient = LIST_PSIKOLOG.some((p) => {
+            const matchesUser = p.keywords.some((k) => nameLower.includes(k));
+            const matchesDoc = p.keywords.some((k) => docLower.includes(k));
+            return matchesUser && matchesDoc;
+          }) || docLower.includes(nameLower);
+
+          if (!isMyPatient) {
+            return false; // HILANGKAN TOTAL DARI TAMPILAN
+          }
+        } else if (hasTherapistAccess) {
+          const tName = activeName || userName;
+          const isMyPatient = matchesTherapistAssignment
+            ? matchesTherapistAssignment(item.assigned_terapis, tName)
+            : (item.assigned_terapis || '').toLowerCase().includes(tName.toLowerCase());
+
+          if (!isMyPatient) {
+            return false; // HILANGKAN TOTAL DARI TAMPILAN
+          }
+        }
+      }
+
+      // 2. Filter Tab Pilihan
       const docName = item.doctor_name || '';
 
       if (activeTab === 'all') {
@@ -877,7 +890,16 @@ export default function App() {
 
       return true;
     });
-  }, [appointmentsList, activeTab]);
+  }, [
+    appointmentsList,
+    activeTab,
+    hasMasterAccess,
+    hasAdminAccess,
+    hasPsychologistAccess,
+    hasTherapistAccess,
+    activeName,
+    userName
+  ]);
 
   const availableDates = useMemo(() => {
     const map = new Map();
@@ -1017,7 +1039,7 @@ export default function App() {
                     className="px-2.5 py-1.5 bg-amber-50 text-amber-900 border border-amber-300 rounded-xl text-xs font-bold outline-none cursor-pointer hover:bg-amber-100 transition shadow-2xs"
                     title="Simulasikan tampilan role lain"
                   >
-                    <option value="default">🔍 Switch View (Master IT)</option>
+                    <option value="default">Switch View (Master IT)</option>
                     <option value="admin:Fauzan Hamdani">View as: Admin (Fauzan)</option>
                     <option value="terapis:Shima Adinda Salsabil">View as: Terapis (Shima)</option>
                     <option value="psikolog:M. Azka Maulana, M.Psi., Psikolog">View as: Psikolog (Pak Azka)</option>
@@ -1030,33 +1052,47 @@ export default function App() {
                 </div>
               )}
 
-              {/* REKAP KEUANGAN EXCEL / CSV (KHUSUS ADMIN) */}
-              {hasAdminAccess && (
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => exportFinancialExcel(appointmentsList)}
-                    className="px-3 py-1.5 bg-[#701A24] hover:bg-[#54121B] text-white font-semibold rounded-xl text-xs transition shadow-xs flex items-center gap-1.5 active:scale-95"
-                    title="Export Rekap Keuangan Bulanan ke Excel (.xls)"
-                  >
-                    <DownloadIcon className="w-3.5 h-3.5" />
-                    <span>Export Excel</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => exportFinancialCsv(appointmentsList)}
-                    className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-semibold rounded-xl text-xs transition shadow-xs flex items-center gap-1.5 active:scale-95 hidden md:flex"
-                    title="Export Rekap Keuangan ke file .CSV"
-                  >
-                    <DownloadIcon className="w-3.5 h-3.5" />
-                    <span>CSV</span>
-                  </button>
-                </div>
+              {/* FITUR 1: LAPORAN SHIFT ADMIN & HANDOVER (KHUSUS ADMIN & MASTER SAAT DEFAULT) */}
+              {(hasAdminAccess || hasMasterAccess) && (
+                <button
+                  type="button"
+                  onClick={() => setShowShiftReport(true)}
+                  className="px-3 py-1.5 bg-[#701A24] hover:bg-[#581524] text-white font-semibold rounded-xl text-xs transition shadow-xs flex items-center gap-1.5 active:scale-95 cursor-pointer"
+                  title="Form Presensi & Laporan Ringkasan Shift Admin"
+                >
+                  <ClipboardListIcon className="w-3.5 h-3.5 text-white" />
+                  <span>Laporan Shift</span>
+                </button>
               )}
 
-              {/* REKAP KONSELING EXCEL (KHUSUS PSIKOLOG) */}
-              {hasPsychologistAccess && !hasAdminAccess && (
+              {/* FITUR 2: REKAP BULANAN NATIVE EXCEL (.XLSX) (KHUSUS MASTER & PSIKOLOG) */}
+              {(hasMasterAccess || hasPsychologistAccess) && (
+                <button
+                  type="button"
+                  onClick={() => setShowMonthlyRekap(true)}
+                  className="px-3 py-1.5 bg-white hover:bg-[#FAF8F5] text-[#701A24] border border-[#EADFD5] font-semibold rounded-xl text-xs transition shadow-xs flex items-center gap-1.5 active:scale-95 cursor-pointer"
+                  title="Buka Rekap Pasien per Bulan & Download Native .xlsx"
+                >
+                  <BarChartIcon className="w-3.5 h-3.5 text-[#701A24]" />
+                  <span>Rekap Bulanan</span>
+                </button>
+              )}
+
+              {/* QUICK EXCEL SELURUH DATA PASIEN (KHUSUS MASTER) */}
+              {hasMasterAccess && (
+                <button
+                  type="button"
+                  onClick={() => exportFinancialExcel(appointmentsList)}
+                  className="px-3 py-1.5 bg-[#701A24] hover:bg-[#581524] text-white font-semibold rounded-xl text-xs transition shadow-xs flex items-center gap-1.5 active:scale-95 cursor-pointer"
+                  title="Download Quick Excel Seluruh Pasien & Keuangan (.xlsx)"
+                >
+                  <DownloadIcon className="w-3.5 h-3.5" />
+                  <span>Quick Excel</span>
+                </button>
+              )}
+
+              {/* QUICK EXCEL PASIEN SENDIRI (KHUSUS PSIKOLOG) */}
+              {hasPsychologistAccess && !hasMasterAccess && (
                 <button
                   type="button"
                   onClick={() => {
@@ -1065,18 +1101,18 @@ export default function App() {
                       const nameLower = activeName.toLowerCase();
                       return docLower.includes(nameLower) || LIST_PSIKOLOG.some((p) => p.keywords.some((k) => nameLower.includes(k) && docLower.includes(k)));
                     });
-                    exportPsychologistExcel(myPatients.length > 0 ? myPatients : appointmentsList, activeName);
+                    exportPsychologistExcel(myPatients, activeName);
                   }}
-                  className="px-3 py-1.5 bg-[#701A24] hover:bg-[#54121B] text-white font-semibold rounded-xl text-xs transition shadow-xs flex items-center gap-1.5 active:scale-95"
-                  title="Download Rekap Konseling & Evaluasi Psikolog ke Excel (.xlsx)"
+                  className="px-3 py-1.5 bg-[#701A24] hover:bg-[#581524] text-white font-semibold rounded-xl text-xs transition shadow-xs flex items-center gap-1.5 active:scale-95 cursor-pointer"
+                  title="Download Quick Excel Pasien Psikolog (.xlsx)"
                 >
                   <DownloadIcon className="w-3.5 h-3.5" />
-                  <span>Download Rekap (.xlsx)</span>
+                  <span>Quick Excel</span>
                 </button>
               )}
 
-              {/* EXPORT MEDIS TERAPIS (KHUSUS TERAPIS) */}
-              {hasTherapistAccess && !hasAdminAccess && (
+              {/* QUICK EXCEL PASIEN RUJUKAN SENDIRI (KHUSUS TERAPIS) */}
+              {hasTherapistAccess && !hasMasterAccess && (
                 <button
                   type="button"
                   onClick={() => {
@@ -1085,11 +1121,11 @@ export default function App() {
                     );
                     exportTherapistExcel(myPatients, activeName);
                   }}
-                  className="px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white font-semibold rounded-xl text-xs transition shadow-xs flex items-center gap-1.5 active:scale-95"
-                  title="Download Rekap Progress Pasien Terapis (.xlsx)"
+                  className="px-3 py-1.5 bg-[#701A24] hover:bg-[#581524] text-white font-semibold rounded-xl text-xs transition shadow-xs flex items-center gap-1.5 active:scale-95 cursor-pointer"
+                  title="Download Quick Excel Pasien Rujukan Terapis (.xlsx)"
                 >
                   <DownloadIcon className="w-3.5 h-3.5" />
-                  <span>Download Rekap (.xlsx)</span>
+                  <span>Quick Excel</span>
                 </button>
               )}
 
@@ -1181,37 +1217,59 @@ export default function App() {
                 </div>
               )}
 
-              {/* EKSPOR DATA BERDASARKAN ROLE DI MOBILE */}
+              {/* FITUR OPERASIONAL & EKSPOR DI MOBILE */}
               <div className="space-y-2 pt-1">
-                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Ekspor Data & Rekap:</p>
-                {hasAdminAccess && (
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        exportFinancialExcel(appointmentsList);
-                        setMobileMenuOpen(false);
-                      }}
-                      className="px-3 py-2 bg-[#701A24] text-white font-semibold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-xs active:scale-95"
-                    >
-                      <DownloadIcon className="w-3.5 h-3.5" />
-                      <span>Export Excel</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        exportFinancialCsv(appointmentsList);
-                        setMobileMenuOpen(false);
-                      }}
-                      className="px-3 py-2 bg-emerald-700 text-white font-semibold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-xs active:scale-95"
-                    >
-                      <DownloadIcon className="w-3.5 h-3.5" />
-                      <span>CSV</span>
-                    </button>
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Operasional & Rekap:</p>
+                
+                {/* AKSI SHIFT & REKAP DI MOBILE */}
+                {((hasAdminAccess || hasMasterAccess) || (hasMasterAccess || hasPsychologistAccess)) && (
+                  <div className={`grid ${(hasAdminAccess || hasMasterAccess) && (hasMasterAccess || hasPsychologistAccess) ? 'grid-cols-2' : 'grid-cols-1'} gap-2`}>
+                    {(hasAdminAccess || hasMasterAccess) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowShiftReport(true);
+                          setMobileMenuOpen(false);
+                        }}
+                        className="px-3 py-2 bg-[#701A24] text-white font-semibold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-xs active:scale-95 cursor-pointer"
+                      >
+                        <ClipboardListIcon className="w-3.5 h-3.5 text-white" />
+                        <span>Laporan Shift</span>
+                      </button>
+                    )}
+                    {(hasMasterAccess || hasPsychologistAccess) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowMonthlyRekap(true);
+                          setMobileMenuOpen(false);
+                        }}
+                        className="px-3 py-2 bg-white text-[#701A24] border border-[#EADFD5] font-semibold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-xs active:scale-95 cursor-pointer"
+                      >
+                        <BarChartIcon className="w-3.5 h-3.5 text-[#701A24]" />
+                        <span>Rekap Bulanan</span>
+                      </button>
+                    )}
                   </div>
                 )}
 
-                {hasPsychologistAccess && !hasAdminAccess && (
+                {/* QUICK EXCEL SELURUH DATA PASIEN DI MOBILE (KHUSUS MASTER) */}
+                {hasMasterAccess && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      exportFinancialExcel(appointmentsList);
+                      setMobileMenuOpen(false);
+                    }}
+                    className="w-full px-3 py-2 bg-[#701A24] text-white font-semibold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-xs active:scale-95 cursor-pointer"
+                  >
+                    <DownloadIcon className="w-3.5 h-3.5" />
+                    <span>Quick Excel (Semua Pasien)</span>
+                  </button>
+                )}
+
+                {/* QUICK EXCEL PASIEN SENDIRI DI MOBILE (KHUSUS PSIKOLOG) */}
+                {hasPsychologistAccess && !hasMasterAccess && (
                   <button
                     type="button"
                     onClick={() => {
@@ -1220,17 +1278,18 @@ export default function App() {
                         const nameLower = activeName.toLowerCase();
                         return docLower.includes(nameLower) || LIST_PSIKOLOG.some((p) => p.keywords.some((k) => nameLower.includes(k) && docLower.includes(k)));
                       });
-                      exportPsychologistExcel(myPatients.length > 0 ? myPatients : appointmentsList, activeName);
+                      exportPsychologistExcel(myPatients, activeName);
                       setMobileMenuOpen(false);
                     }}
-                    className="w-full px-3 py-2 bg-[#701A24] text-white font-semibold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-xs active:scale-95"
+                    className="w-full px-3 py-2 bg-[#701A24] text-white font-semibold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-xs active:scale-95 cursor-pointer"
                   >
                     <DownloadIcon className="w-3.5 h-3.5" />
-                    <span>Download Rekap (.xlsx)</span>
+                    <span>Quick Excel (.xlsx)</span>
                   </button>
                 )}
 
-                {hasTherapistAccess && !hasAdminAccess && (
+                {/* QUICK EXCEL PASIEN RUJUKAN DI MOBILE (KHUSUS TERAPIS) */}
+                {hasTherapistAccess && !hasMasterAccess && (
                   <button
                     type="button"
                     onClick={() => {
@@ -1240,10 +1299,10 @@ export default function App() {
                       exportTherapistExcel(myPatients, activeName);
                       setMobileMenuOpen(false);
                     }}
-                    className="w-full px-3 py-2 bg-blue-700 text-white font-semibold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-xs active:scale-95"
+                    className="w-full px-3 py-2 bg-[#701A24] text-white font-semibold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-xs active:scale-95 cursor-pointer"
                   >
                     <DownloadIcon className="w-3.5 h-3.5" />
-                    <span>Download Rekap Medis (.xlsx)</span>
+                    <span>Quick Excel (.xlsx)</span>
                   </button>
                 )}
               </div>
@@ -1286,38 +1345,6 @@ export default function App() {
                 {hasPsychologistAccess && 'Akses Psikolog: Mengisi Anamnesa, Diagnosa, Rancangan Tindak Lanjut & Rujukan secara web-based langsung dari dashboard.'}
                 {hasTherapistAccess && !hasAdminAccess && 'Akses Terapis: Memantau dan memperbarui progress perkembangan terapi anak secara berkelanjutan tanpa file Word.'}
               </p>
-            </div>
-          </div>
-
-          {/* BANNER INDIKATOR VOUCHER REAL-TIME (TANPA EMOJI GENERIK) */}
-          <div className="bg-amber-50/70 border border-amber-300 p-3.5 rounded-2xl mb-6 flex flex-wrap items-center justify-between gap-3 shadow-xs">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-xl bg-amber-100 border border-amber-200 flex items-center justify-center text-amber-800">
-                <TagIcon className="w-4 h-4 text-amber-800" />
-              </div>
-              <div>
-                <p className="text-xs font-bold text-amber-950">
-                  Status Voucher Promo: OPENING100K (Diskon Rp 100.000)
-                </p>
-                <p className="text-[11px] text-amber-800 font-medium">
-                  Validasi otomatis kuota maksimal pemakaian 17 pendaftaran
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <span className={`px-3 py-1 rounded-full text-xs font-bold border ${
-                voucherUsedCount >= MAX_OPENING_VOUCHER_QUOTA
-                  ? 'bg-red-100 text-red-800 border-red-300'
-                  : 'bg-emerald-100 text-emerald-800 border-emerald-300'
-              }`}>
-                {voucherUsedCount} / {MAX_OPENING_VOUCHER_QUOTA} Terpakai
-              </span>
-              <span className="text-xs font-semibold text-gray-600">
-                {MAX_OPENING_VOUCHER_QUOTA - voucherUsedCount > 0
-                  ? `(Sisa: ${MAX_OPENING_VOUCHER_QUOTA - voucherUsedCount} kuota)`
-                  : '(Kuota Habis)'}
-              </span>
             </div>
           </div>
 
@@ -1470,6 +1497,7 @@ export default function App() {
                         hasTherapistAccess={hasTherapistAccess}
                         matchesTherapistAssignment={matchesTherapistAssignment}
                         isSimulatingRole={isRealMaster && !!simulationPersona}
+                        isRealMaster={isRealMaster}
                         onOpenMedicalModal={handleOpenMedicalModal}
                         onOpenTherapyModal={handleOpenTherapyModal}
                         onOpenEditModal={handleOpenEditModal}
@@ -1751,6 +1779,33 @@ export default function App() {
               </div>
             </div>
           </div>
+        )}
+
+        {/* MODAL 6: LAPORAN SHIFT ADMIN (CHECK-IN / HANDOVER & REVIEW MASTER) */}
+        {showShiftReport && (hasAdminAccess || hasMasterAccess) && (
+          <AdminShiftReport
+            userName={activeName}
+            userRole={activeRole}
+            hasMasterAccess={hasMasterAccess}
+            appointmentsList={appointmentsList}
+            onClose={() => setShowShiftReport(false)}
+          />
+        )}
+
+        {/* MODAL 7: REKAP PASIEN BULANAN & NATIVE EXCEL (.XLSX) (MASTER & PSIKOLOG ONLY) */}
+        {showMonthlyRekap && (hasMasterAccess || hasPsychologistAccess) && (
+          <MonthlyRekapModal
+            appointmentsList={appointmentsList}
+            userRole={activeRole}
+            userName={activeName}
+            hasMasterAccess={hasMasterAccess}
+            hasAdminAccess={hasAdminAccess}
+            hasPsychologistAccess={hasPsychologistAccess}
+            hasTherapistAccess={hasTherapistAccess}
+            activeName={activeName}
+            matchesTherapistAssignment={matchesTherapistAssignment}
+            onClose={() => setShowMonthlyRekap(false)}
+          />
         )}
 
         {/* PWA INSTALL PROMPT */}

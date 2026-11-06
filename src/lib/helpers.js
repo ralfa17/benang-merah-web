@@ -1,3 +1,4 @@
+import * as XLSX from 'xlsx';
 import { SERVICE_PRICES, ADMIN_HANDLERS, PAYMENT_METHODS } from './constants';
 
 export const formatRupiah = (num) => {
@@ -283,62 +284,41 @@ export const exportFinancialCsv = (appointmentsList) => {
   URL.revokeObjectURL(url);
 };
 
-// EXPORT REKAP KEUANGAN KE EXCEL (.XLS DENGAN FORMAT TABEL CANTIK)
-export const exportFinancialExcel = (appointmentsList) => {
+// ============================================================
+// HELPER INTERNAL: Simpan file Excel menggunakan SheetJS (NATIVE .xlsx BINARY)
+// ============================================================
+const saveXlsx = (wb, filename) => {
+  const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  setTimeout(() => URL.revokeObjectURL(url), 500);
+};
+
+// EXPORT REKAP KEUANGAN KE EXCEL NATIVE (.XLSX MURNI — BUKAN HTML)
+export const exportFinancialExcel = (appointmentsList, monthLabel = '') => {
   if (!appointmentsList || appointmentsList.length === 0) {
     alert('Belum ada data pendaftaran untuk diunduh.');
     return;
   }
 
-  let tableHTML = `
-    <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
-    <head>
-      <meta http-equiv="content-type" content="application/vnd.ms-excel; charset=UTF-8"/>
-      <style>
-        body { font-family: Calibri, sans-serif; }
-        .title { font-size: 14pt; font-weight: bold; color: #701A24; }
-        .subtitle { font-size: 10pt; color: #555555; margin-bottom: 15px; }
-        table { border-collapse: collapse; width: 100%; font-size: 10pt; }
-        th { background-color: #701A24; color: #ffffff; font-weight: bold; padding: 8px 10px; border: 1px solid #54121B; text-align: left; }
-        td { padding: 6px 10px; border: 1px solid #D1D5DB; vertical-align: middle; }
-        .num { text-align: right; }
-        .center { text-align: center; }
-        .paid { color: #065F46; font-weight: bold; background-color: #D1FAE5; }
-        .pending { color: #92400E; font-weight: bold; background-color: #FEF3C7; }
-        .footer-total { font-weight: bold; background-color: #F3F4F6; border-top: 2px solid #701A24; }
-      </style>
-    </head>
-    <body>
-      <div class="title">REKAP TRANSAKSI & PEMBUKUAN KEUANGAN KLINIK BENANG MERAH</div>
-      <div class="subtitle">Dicetak pada: ${new Date().toLocaleString('id-ID')} | Total Data: ${appointmentsList.length} Transaksi</div>
-      <table>
-        <thead>
-          <tr>
-            <th class="center">No</th>
-            <th>Tanggal</th>
-            <th>Jam</th>
-            <th>Nama Pasien</th>
-            <th class="center">Usia</th>
-            <th class="center">Sesi Ke-</th>
-            <th>Layanan</th>
-            <th>Psikolog PJ</th>
-            <th>Terapis PJ</th>
-            <th class="num">Biaya Layanan</th>
-            <th class="num">Biaya Admin</th>
-            <th class="num">Total Bayar</th>
-            <th class="center">Metode Bayar</th>
-            <th class="center">Handle By Admin</th>
-            <th class="center">Status</th>
-          </tr>
-        </thead>
-        <tbody>
-  `;
+  const headers = [
+    'No', 'Tanggal Sesi', 'Jam Sesi', 'Nama Pasien', 'Usia', 'Sesi Ke-',
+    'Layanan', 'Psikolog PJ', 'Terapis PJ', 'Biaya Layanan (Rp)',
+    'Biaya Admin (Rp)', 'Total Bayar (Rp)', 'Metode Pembayaran',
+    'Handle By Admin', 'Status Pembayaran'
+  ];
 
   let totalAllRevenue = 0;
   let totalAdminRevenue = 0;
   let totalServiceRevenue = 0;
 
-  appointmentsList.forEach((item, index) => {
+  const rows = appointmentsList.map((item, index) => {
     const meta = parseAppointmentNotes(item.notes);
     const adminFee = Number(item.admin_fee ?? 30000);
     const totalBayar = Number(item.price ?? 30000);
@@ -349,204 +329,201 @@ export const exportFinancialExcel = (appointmentsList) => {
     totalAdminRevenue += adminFee;
     totalServiceRevenue += baseServicePrice;
 
-    const isPaid = item.status === 'lunas';
-
-    tableHTML += `
-      <tr>
-        <td class="center">${index + 1}</td>
-        <td>${item.booking_date || '-'}</td>
-        <td>${item.booking_time || '-'}</td>
-        <td><strong>${item.patient_name || '-'}</strong></td>
-        <td class="center">${item.age ? item.age + ' Thn' : '-'}</td>
-        <td class="center">${item.visit_number || 1}</td>
-        <td>${(item.service_type || item.category || 'Konseling').toUpperCase()}</td>
-        <td>${item.doctor_name || '-'}</td>
-        <td>${item.assigned_terapis || 'Tidak Ada'}</td>
-        <td class="num">Rp ${baseServicePrice.toLocaleString('id-ID')}</td>
-        <td class="num">Rp ${adminFee.toLocaleString('id-ID')}</td>
-        <td class="num"><strong>Rp ${totalBayar.toLocaleString('id-ID')}</strong></td>
-        <td class="center"><strong>${meta.paymentMethod}</strong></td>
-        <td class="center">${meta.handleBy}</td>
-        <td class="center ${isPaid ? 'paid' : 'pending'}">${isPaid ? 'LUNAS' : 'PENDING'}</td>
-      </tr>
-    `;
+    return [
+      index + 1,
+      item.booking_date || '-',
+      item.booking_time || '-',
+      item.patient_name || '-',
+      item.age ? `${item.age} Thn` : '-',
+      item.visit_number || 1,
+      item.service_type || item.category || 'Konseling',
+      item.doctor_name || '-',
+      item.assigned_terapis || 'Tidak Ada',
+      baseServicePrice,
+      adminFee,
+      totalBayar,
+      meta.paymentMethod || 'QRIS',
+      meta.handleBy || 'Fauzan',
+      item.status === 'lunas' ? 'LUNAS' : 'PENDING'
+    ];
   });
 
-  tableHTML += `
-        </tbody>
-        <tfoot>
-          <tr class="footer-total">
-            <td colspan="9" style="text-align: right; padding-right: 12px;"><strong>TOTAL REKAPITULASI:</strong></td>
-            <td class="num"><strong>Rp ${totalServiceRevenue.toLocaleString('id-ID')}</strong></td>
-            <td class="num"><strong>Rp ${totalAdminRevenue.toLocaleString('id-ID')}</strong></td>
-            <td class="num" style="color:#701A24;"><strong>Rp ${totalAllRevenue.toLocaleString('id-ID')}</strong></td>
-            <td colspan="3"></td>
-          </tr>
-        </tfoot>
-      </table>
-    </body>
-    </html>
-  `;
+  // Baris total rekapitulasi
+  rows.push([
+    '', '', '', '', '', '', '', '', 'TOTAL REKAPITULASI:',
+    totalServiceRevenue, totalAdminRevenue, totalAllRevenue, '', '', ''
+  ]);
 
-  const blob = new Blob([tableHTML], { type: 'application/vnd.ms-excel;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.setAttribute('href', url);
-  link.setAttribute('download', `Rekap_Keuangan_BenangMerah_${new Date().toISOString().slice(0, 10)}.xls`);
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  const wsData = [headers, ...rows];
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+  // Set lebar kolom agar rapi
+  ws['!cols'] = [
+    { wch: 4 }, { wch: 13 }, { wch: 10 }, { wch: 25 }, { wch: 7 },
+    { wch: 7 }, { wch: 30 }, { wch: 32 }, { wch: 25 }, { wch: 16 },
+    { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 15 }, { wch: 12 }
+  ];
+
+  const wb = XLSX.utils.book_new();
+  const sheetTitle = monthLabel ? `Rekap ${monthLabel}` : 'Rekap Keuangan';
+  XLSX.utils.book_append_sheet(wb, ws, sheetTitle);
+
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const suffix = monthLabel ? `_${monthLabel.replace(/\s+/g, '_')}` : '';
+  saveXlsx(wb, `Rekap_Keuangan_BenangMerah${suffix}_${dateStr}.xlsx`);
 };
 
-// EXPORT PROGRESS REKAM MEDIS TERAPIS KE EXCEL
-export const exportTherapistExcel = (myPatients, userName) => {
+
+
+// EXPORT PROGRESS REKAM MEDIS TERAPIS KE EXCEL NATIVE (.XLSX MURNI)
+export const exportTherapistExcel = (myPatients, userName, monthLabel = '') => {
   if (!myPatients || myPatients.length === 0) {
     alert(`Belum ada data pasien rujukan khusus untuk ${userName}.`);
     return;
   }
 
-  let tableHTML = `
-    <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
-    <head>
-      <meta http-equiv="content-type" content="application/vnd.ms-excel; charset=UTF-8"/>
-      <style>
-        body { font-family: Calibri, sans-serif; }
-        .title { font-size: 14pt; font-weight: bold; color: #1D4ED8; }
-        table { border-collapse: collapse; width: 100%; font-size: 10pt; }
-        th { background-color: #1D4ED8; color: #ffffff; font-weight: bold; padding: 8px 10px; border: 1px solid #1E40AF; text-align: left; }
-        td { padding: 6px 10px; border: 1px solid #D1D5DB; vertical-align: top; }
-        .center { text-align: center; }
-      </style>
-    </head>
-    <body>
-      <div class="title">REKAP PROGRESS PASIEN TERAPIS - ${userName.toUpperCase()}</div>
-      <p>Klinik Benang Merah | Tanggal Ekspor: ${new Date().toLocaleDateString('id-ID')}</p>
-      <table>
-        <thead>
-          <tr>
-            <th class="center">No</th>
-            <th>Tanggal</th>
-            <th>Jam</th>
-            <th>Nama Pasien</th>
-            <th class="center">Usia</th>
-            <th class="center">Sesi Ke-</th>
-            <th>Layanan</th>
-            <th>Psikolog PJ</th>
-            <th>Catatan Rekam Medis & Progress Terapi</th>
-            <th class="center">Status</th>
-          </tr>
-        </thead>
-        <tbody>
-  `;
+  const headers = [
+    'No', 'Tanggal', 'Jam', 'Nama Pasien', 'Usia', 'Sesi Ke-',
+    'Layanan', 'Psikolog PJ', 'Catatan Rekam Medis & Progress Terapi', 'Status'
+  ];
 
-  myPatients.forEach((item, index) => {
-    tableHTML += `
-      <tr>
-        <td class="center">${index + 1}</td>
-        <td>${item.booking_date || '-'}</td>
-        <td>${item.booking_time || '-'}</td>
-        <td><strong>${item.patient_name || '-'}</strong></td>
-        <td class="center">${item.age ? item.age + ' Thn' : '-'}</td>
-        <td class="center">${item.visit_number || 1}</td>
-        <td>${(item.service_type || item.category || 'Terapi Anak').toUpperCase()}</td>
-        <td>${item.doctor_name || '-'}</td>
-        <td>${(item.notes || '-').replace(/\n/g, '<br/>')}</td>
-        <td class="center">${(item.status || 'pending').toUpperCase()}</td>
-      </tr>
-    `;
-  });
+  const rows = myPatients.map((item, index) => [
+    index + 1,
+    item.booking_date || '-',
+    item.booking_time || '-',
+    item.patient_name || '-',
+    item.age ? `${item.age} Thn` : '-',
+    item.visit_number || 1,
+    (item.service_type || item.category || 'Terapi Anak').toUpperCase(),
+    item.doctor_name || '-',
+    (item.notes || '-'),
+    (item.status || 'pending').toUpperCase()
+  ]);
 
-  tableHTML += `</tbody></table></body></html>`;
+  const wsData = [headers, ...rows];
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
 
-  const blob = new Blob([tableHTML], { type: 'application/vnd.ms-excel;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.setAttribute('href', url);
-  link.setAttribute('download', `Rekap_Medis_${userName.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.xls`);
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  ws['!cols'] = [
+    { wch: 4 }, { wch: 13 }, { wch: 10 }, { wch: 25 }, { wch: 7 },
+    { wch: 7 }, { wch: 30 }, { wch: 32 }, { wch: 60 }, { wch: 12 }
+  ];
+
+  const wb = XLSX.utils.book_new();
+  const sheetTitle = monthLabel ? `Rekap ${monthLabel}` : 'Progress Terapis';
+  XLSX.utils.book_append_sheet(wb, ws, sheetTitle);
+
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const suffix = monthLabel ? `_${monthLabel.replace(/\s+/g, '_')}` : '';
+  saveXlsx(wb, `Rekap_Medis_${userName.replace(/\s+/g, '_')}${suffix}_${dateStr}.xlsx`);
 };
 
-// EXPORT REKAP KONSELING & REKAM MEDIS PSIKOLOG KE EXCEL
-export const exportPsychologistExcel = (myPatients, userName) => {
+// EXPORT REKAP KONSELING & REKAM MEDIS PSIKOLOG KE EXCEL NATIVE (.XLSX MURNI)
+export const exportPsychologistExcel = (myPatients, userName, monthLabel = '') => {
   if (!myPatients || myPatients.length === 0) {
     alert(`Belum ada data pendaftaran/konseling untuk ${userName}.`);
     return;
   }
 
-  let tableHTML = `
-    <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
-    <head>
-      <meta http-equiv="content-type" content="application/vnd.ms-excel; charset=UTF-8"/>
-      <style>
-        body { font-family: Calibri, sans-serif; }
-        .title { font-size: 14pt; font-weight: bold; color: #701A24; }
-        .subtitle { font-size: 10pt; color: #555555; margin-bottom: 15px; }
-        table { border-collapse: collapse; width: 100%; font-size: 10pt; }
-        th { background-color: #701A24; color: #ffffff; font-weight: bold; padding: 8px 10px; border: 1px solid #54121B; text-align: left; }
-        td { padding: 6px 10px; border: 1px solid #D1D5DB; vertical-align: top; }
-        .center { text-align: center; }
-        .bold { font-weight: bold; }
-      </style>
-    </head>
-    <body>
-      <div class="title">REKAP EVALUASI & REKAM MEDIS PSIKOLOG - ${userName.toUpperCase()}</div>
-      <div class="subtitle">Klinik Benang Merah | Tanggal Ekspor: ${new Date().toLocaleDateString('id-ID')} | Total: ${myPatients.length} Pasien/Sesi</div>
-      <table>
-        <thead>
-          <tr>
-            <th class="center">No</th>
-            <th>Tanggal</th>
-            <th>Jam</th>
-            <th>Nama Pasien</th>
-            <th class="center">Usia</th>
-            <th class="center">Sesi Ke-</th>
-            <th>Layanan</th>
-            <th>Psikolog PJ</th>
-            <th>Anamnesa / Keluhan</th>
-            <th>Diagnosa Klinis</th>
-            <th>Rencana Tindak Lanjut</th>
-            <th>Rujukan Terapis</th>
-            <th class="center">Status</th>
-          </tr>
-        </thead>
-        <tbody>
-  `;
+  const headers = [
+    'No', 'Tanggal', 'Jam', 'Nama Pasien', 'Usia', 'Sesi Ke-',
+    'Layanan', 'Psikolog PJ', 'Terapis Perujuk / Pendamping', 'Anamnesa / Keluhan', 'Diagnosa Klinis',
+    'Rencana Tindak Lanjut', 'Status'
+  ];
 
-  myPatients.forEach((item, index) => {
+  const rows = myPatients.map((item, index) => {
     const meta = parseAppointmentNotes(item.notes);
-    tableHTML += `
-      <tr>
-        <td class="center">${index + 1}</td>
-        <td>${item.booking_date || '-'}</td>
-        <td>${item.booking_time || '-'}</td>
-        <td class="bold">${item.patient_name || '-'}</td>
-        <td class="center">${item.age ? item.age + ' Thn' : '-'}</td>
-        <td class="center">${item.visit_number || 1}</td>
-        <td>${(item.service_type || item.category || 'Konseling').toUpperCase()}</td>
-        <td>${item.doctor_name || '-'}</td>
-        <td>${(meta.anamnesa || '-').replace(/\n/g, '<br/>')}</td>
-        <td>${(meta.diagnosis || '-').replace(/\n/g, '<br/>')}</td>
-        <td>${(meta.followUpPlan || '-').replace(/\n/g, '<br/>')}</td>
-        <td>${meta.internalReferral || '-'}</td>
-        <td class="center">${(item.status || 'pending').toUpperCase()}</td>
-      </tr>
-    `;
+    const terapisPendamping = item.assigned_terapis || meta.internalReferral || 'Tidak Ada';
+    return [
+      index + 1,
+      item.booking_date || '-',
+      item.booking_time || '-',
+      item.patient_name || '-',
+      item.age ? `${item.age} Thn` : '-',
+      item.visit_number || 1,
+      (item.service_type || item.category || 'Konseling').toUpperCase(),
+      item.doctor_name || '-',
+      terapisPendamping,
+      meta.anamnesa || '-',
+      meta.diagnosis || '-',
+      meta.followUpPlan || '-',
+      (item.status || 'pending').toUpperCase()
+    ];
   });
 
-  tableHTML += `</tbody></table></body></html>`;
+  const wsData = [headers, ...rows];
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
 
-  const blob = new Blob([tableHTML], { type: 'application/vnd.ms-excel;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.setAttribute('href', url);
-  link.setAttribute('download', `Rekap_Konseling_${userName.replace(/[^a-zA-Z0-9]/g, '_')}_${new Date().toISOString().slice(0, 10)}.xls`);
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  ws['!cols'] = [
+    { wch: 4 }, { wch: 13 }, { wch: 10 }, { wch: 25 }, { wch: 7 },
+    { wch: 7 }, { wch: 30 }, { wch: 32 }, { wch: 28 }, { wch: 40 },
+    { wch: 30 }, { wch: 30 }, { wch: 12 }
+  ];
+
+  const wb = XLSX.utils.book_new();
+  const sheetTitle = monthLabel ? `Rekap ${monthLabel}` : 'Rekap Konseling';
+  XLSX.utils.book_append_sheet(wb, ws, sheetTitle);
+
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const suffix = monthLabel ? `_${monthLabel.replace(/\s+/g, '_')}` : '';
+  saveXlsx(wb, `Rekap_Konseling_${userName.replace(/[^a-zA-Z0-9]/g, '_')}${suffix}_${dateStr}.xlsx`);
 };
+
+// ============================================================
+// REKAP BULANAN: Filter dan export data berdasarkan bulan & tahun
+// ============================================================
+
+/**
+ * Filter daftar appointments berdasarkan bulan & tahun (1-indexed)
+ * @param {Array} appointmentsList - Semua data appointments
+ * @param {number} year - Tahun (misal: 2026)
+ * @param {number} month - Bulan 1-12 (atau 0 = semua bulan)
+ * @returns {Array} appointments yang sesuai filter
+ */
+export const filterByMonth = (appointmentsList, year, month) => {
+  if (!year) return appointmentsList;
+  return (appointmentsList || []).filter((item) => {
+    if (!item.booking_date) return false;
+    const [itemYear, itemMonth] = item.booking_date.split('-').map(Number);
+    if (itemYear !== year) return false;
+    if (month && itemMonth !== month) return false;
+    return true;
+  });
+};
+
+/**
+ * Daftar bulan dalam Bahasa Indonesia untuk dropdown filter
+ */
+export const MONTH_OPTIONS = [
+  { value: 0, label: 'Semua Bulan' },
+  { value: 1, label: 'Januari' },
+  { value: 2, label: 'Februari' },
+  { value: 3, label: 'Maret' },
+  { value: 4, label: 'April' },
+  { value: 5, label: 'Mei' },
+  { value: 6, label: 'Juni' },
+  { value: 7, label: 'Juli' },
+  { value: 8, label: 'Agustus' },
+  { value: 9, label: 'September' },
+  { value: 10, label: 'Oktober' },
+  { value: 11, label: 'November' },
+  { value: 12, label: 'Desember' }
+];
+
+/**
+ * Dapatkan daftar tahun yang tersedia dari data appointments
+ */
+export const getAvailableYears = (appointmentsList) => {
+  const years = new Set();
+  (appointmentsList || []).forEach((item) => {
+    if (item.booking_date) {
+      const year = parseInt(item.booking_date.split('-')[0], 10);
+      if (!isNaN(year)) years.add(year);
+    }
+  });
+  const currentYear = new Date().getFullYear();
+  years.add(currentYear);
+  return Array.from(years).sort((a, b) => b - a);
+};
+
+
 

@@ -33,6 +33,7 @@ export default function PatientAccordionRow({
   hasTherapistAccess,
   matchesTherapistAssignment,
   isSimulatingRole = false,
+  isRealMaster = false,
   onOpenMedicalModal,
   onOpenTherapyModal,
   onOpenEditModal,
@@ -87,10 +88,11 @@ export default function PatientAccordionRow({
     );
   });
 
-  // Aturan Sensor Privasi Data Pasien Antar-Role:
-  // - Master IT & Admin: Akses penuh tanpa sensor identitas
-  // - Psikolog: Hanya akses penuh untuk pasien rujukan/binaan miliknya; pasien rekan lain tersensor
-  // - Terapis: Hanya akses penuh untuk pasien rujukan/binaan miliknya; pasien rekan lain tersensor
+  // Aturan STRICT POV ISOLATION:
+  // - Master IT (saat default / non-simulasi: hasMasterAccess=true) & Admin: Akses penuh tanpa sensor identitas
+  // - Saat Master memilih Simulasi POV Nakes (hasMasterAccess=false): Tampilan wajib 100% mengikuti POV Nakes! Dilarang bypass!
+  // - Psikolog: Hanya akses penuh untuk pasien rujukan/binaan miliknya; pasien rekan lain DIHILANGKAN TOTAL
+  // - Terapis: Hanya akses penuh untuk pasien rujukan/binaan miliknya; pasien rekan lain DIHILANGKAN TOTAL
   let canViewPatientIdentity = false;
   if (hasMasterAccess || hasAdminAccess) {
     canViewPatientIdentity = true;
@@ -98,6 +100,11 @@ export default function PatientAccordionRow({
     canViewPatientIdentity = true;
   } else if (hasTherapistAccess && isAssignedToThisTherapist) {
     canViewPatientIdentity = true;
+  }
+
+  // Strict POV: Jika bukan pasien hak aksesnya, hilangkan baris TOTAL dari tampilan UI
+  if (!canViewPatientIdentity) {
+    return null;
   }
 
   // ── Incentive Session Indicator (hanya untuk Terapis & Master) ──
@@ -135,8 +142,9 @@ export default function PatientAccordionRow({
                   <span className="font-mono font-bold text-sm text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded-lg border border-slate-300 select-none tracking-widest">
                     ████████
                   </span>
-                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
-                    🔒 Pasien Terproteksi ({hasTherapistAccess ? 'Terapis/Psikolog Lain' : 'Psikolog/Terapis Lain'})
+                  <span className="inline-flex items-center gap-1.5 bg-[#F5EBE6] text-[#6B1D2F] border border-[#E8D5CE] rounded-full px-2.5 py-0.5 text-xs font-medium">
+                    <LockIcon className="w-3 h-3 text-[#6B1D2F]" />
+                    <span>Pasien Terproteksi</span>
                   </span>
                 </div>
               )}

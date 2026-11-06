@@ -77,13 +77,19 @@ export default function EditAppointmentModal({
       return;
     }
 
+    if (code === 'OPENING100K') {
+      setDiscountApplied(0);
+      setVoucherMsg('Promo OPENING100K telah berakhir karena telah berganti bulan.');
+      return;
+    }
+
     if (MASTER_VOUCHERS[code]) {
       const discountVal = MASTER_VOUCHERS[code];
       setDiscountApplied(discountVal);
       setVoucherMsg(`Voucher ${code} Aktif (Diskon ${formatRupiah(discountVal)})`);
     } else {
       setDiscountApplied(0);
-      setVoucherMsg('Kode voucher tidak valid.');
+      setVoucherMsg('Kode voucher tidak valid atau masa berlaku telah berakhir.');
     }
   };
 
@@ -321,31 +327,6 @@ export default function EditAppointmentModal({
                 onChange={(e) => setCustomPrice(e.target.value)}
                 className="w-full p-2 border border-amber-300 rounded-lg outline-none font-bold text-gray-800 bg-white"
               />
-            </div>
-
-            <div className="pt-1.5 border-t border-amber-200">
-              <label className="block font-semibold text-amber-900 mb-1">Voucher Diskon</label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="OPENING100K"
-                  value={voucherInput}
-                  onChange={(e) => setVoucherInput(e.target.value)}
-                  className="w-full px-2.5 py-1.5 border border-amber-300 rounded-lg outline-none uppercase font-bold text-gray-800 bg-white"
-                />
-                <button
-                  type="button"
-                  onClick={handleApplyVoucher}
-                  className="px-3 py-1.5 bg-amber-700 hover:bg-amber-800 text-white font-semibold rounded-lg text-xs whitespace-nowrap"
-                >
-                  Terapkan
-                </button>
-              </div>
-              {voucherMsg && (
-                <p className={`text-[11px] font-semibold mt-1 ${discountApplied > 0 ? 'text-emerald-700' : 'text-red-600'}`}>
-                  {voucherMsg}
-                </p>
-              )}
             </div>
           </div>
 

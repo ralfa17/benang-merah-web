@@ -93,7 +93,7 @@ export default function PatientForm({
   };
 
   const overtimeFeeNum = Number(overtimeFee || 0);
-  const totalCalculated = Math.max(0, Number(customServicePrice) - discountApplied) + Number(adminFeeInput) + overtimeFeeNum;
+  const totalCalculated = Number(customServicePrice || 0) + Number(adminFeeInput || 0) + overtimeFeeNum;
 
   return (
     <div className="sticky top-6 self-start max-h-[calc(100vh-3rem)] overflow-y-auto space-y-4 pr-1 scrollbar-thin scrollbar-thumb-[#EADFD5]">
@@ -380,41 +380,6 @@ export default function PatientForm({
                   onChange={(e) => handleChange('customServicePrice', e.target.value)}
                   className="w-full px-3 py-1.5 border border-amber-300 rounded-lg outline-none font-bold text-gray-800 bg-white focus:ring-2 focus:ring-amber-500"
                 />
-              </div>
-
-              {/* VOUCHER PROMO */}
-              <div className="pt-1.5 border-t border-amber-200">
-                <label className="block font-semibold text-amber-900 mb-1 flex items-center justify-between text-[11px]">
-                  <span className="flex items-center gap-1">
-                    <TagIcon className="w-3.5 h-3.5 text-amber-700" />
-                    Kode Voucher Promo
-                  </span>
-                  <span className="text-[10px] text-amber-800 font-normal">
-                    Quota: {voucherUsedCount}/{maxVoucherQuota}
-                  </span>
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="OPENING100K"
-                    value={voucherInput}
-                    onChange={(e) => handleChange('voucherInput', e.target.value)}
-                    className="w-full px-3 py-1.5 border border-amber-300 rounded-lg outline-none uppercase font-bold text-gray-800 bg-white"
-                  />
-                  <button
-                    type="button"
-                    disabled={checkingVoucher}
-                    onClick={onApplyVoucher}
-                    className="px-3 py-1.5 bg-amber-700 hover:bg-amber-800 text-white font-semibold rounded-lg text-xs whitespace-nowrap shadow-xs disabled:opacity-50"
-                  >
-                    {checkingVoucher ? 'Cek...' : 'Terapkan'}
-                  </button>
-                </div>
-                {voucherMsg && (
-                  <p className={`text-[11px] font-semibold mt-1 ${discountApplied > 0 ? 'text-emerald-700' : 'text-red-600'}`}>
-                    {voucherMsg}
-                  </p>
-                )}
               </div>
             </div>
           )}
