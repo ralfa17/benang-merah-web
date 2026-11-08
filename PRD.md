@@ -1,7 +1,7 @@
 # Product Requirements Document (PRD)
 ## Klinik Psikologi & Layanan Terpadu Benang Merah
 
-**Versi:** 2.8.0  
+**Versi:** 2.9.0  
 **Tanggal:** November 2026  
 **Status:** Implemented & Verified (Production Ready)  
 **Teknologi:** React 19, Vite, Tailwind CSS v4, Supabase (PostgreSQL & RLS), ExcelJS, SheetJS (`xlsx`), docx, PWA Workbox  
@@ -91,6 +91,40 @@ Website dan portal internal **Klinik Psikologi Benang Merah** dirancang untuk me
   - Status `'lunas'` / `'paid'`: Background sel diwarnai **HIJAU LEMBUT** (`#C6EFCE` / `FFC6EFCE`) dengan teks gelap (`#006100`).
   - Status `'pending'` / `'belum lunas'`: Background sel diwarnai **MERAH LEMBUT** (`#FFC7CE` / `FFFFC7CE`) dengan teks gelap (`#9C0006`).
 * **Format Tabel:** Dilengkapi header bertema warm Benang Merah (`#F8F4F0` teks `#701A24`), border sel tipis (`thin border`), format angka nominal ribuan, dan lebar kolom proporsional.
+
+### G. Pembaruan Master Data Price List Layanan Psikologi
+* **Katalog Tarif Layanan Baru:**
+  1. Konseling Anak, Remaja, Dewasa (60 menit): **Rp 300.000**
+  2. Konseling Couple (Pra Nikah) (60 menit): **Rp 500.000**
+  3. Konseling Marital / Rumah Tangga (60 menit): **Rp 700.000**
+  4. Konseling Keluarga (60 menit): **Rp 800.000**
+  5. Program Psikoterapi: **Rp 400.000**
+  6. Asesmen Klinis Dewasa: **Rp 500.000**
+  7. Tes IQ: **Rp 350.000**
+  8. Tes IQ WAIS / WISC: **Rp 750.000**
+  9. Tes Kepribadian: **Rp 400.000**
+  10. Tes Minat: **Rp 450.000**
+  11. Tes Minat Potensial (Minat + IQ): **Rp 600.000**
+  12. Tes CTKI: **Rp 450.000**
+  13. Laporan Hasil Pemeriksaan Psikologis: **Rp 150.000**
+* Tersedia pada dropdown form pendaftaran pasien admin dengan auto-fill tarif yang tetap dapat diedit manual bila ada kondisi khusus.
+
+### H. Logika Biaya Overtime Konsultasi (Form Admin)
+* **Perhitungan Otomatis Kelipatan 15 Menit:** Pengisian durasi overtime pada form admin otomatis mematok biaya Rp 50.000 per kelipatan 15 menit (`Math.ceil(menit / 15) * Rp 50.000`).
+* **Fleksibilitas Input:** Field tarif overtime tetap editable untuk disesuaikan secara manual jika ada dispensasi atau kesepakatan khusus.
+* **Transparansi Nota:** Biaya overtime tercatat di database appointments (`notes` meta `overtimeMinutes` & `overtimeFee`) dan tercetak jelas pada struk nota invoice, cetak print, dan teks WhatsApp ke klien.
+
+### I. Item Opsional & Cetak Nota: Laporan Hasil Pemeriksaan Psikologis
+* **Form Checkbox:** Tersedia toggle/checkbox opsional *"Sertakan Laporan Hasil Pemeriksaan Psikologis (+Rp 150.000)"*.
+* **Penghitungan Biaya:** Jika dicentang, sistem otomatis menambahkan Rp 150.000 ke total estimasi biaya pasien.
+* **Tercetak Jelas di Nota:** Dicantumkan secara transparan di pratinjau struk web (`#printable-receipt`), cetak thermal/A4 iframe, serta draf pesan WhatsApp tagihan pasien.
+
+### J. Fiksasi Skema Pembayaran Paket Blok Terapis (Pra-Literasi & Bimbel SD)
+* **Kemandirian Asesmen Awal Psikolog:** Asesmen awal tetap dijalankan terpisah oleh Psikolog dengan tarif asesmen normal.
+* **Pilihan Skema Penagihan Paket Blok (8 Sesi):**
+  - **Bayar di Awal (Sesi 1):** Sesi 1 ditagihkan penuh (Rp 500.000 untuk Pra-Literasi / Rp 600.000 untuk Bimbel SD), sedangkan Sesi 2 s/d 8 mencatat biaya Rp 0 dengan keterangan lunas di awal.
+  - **Bayar di Akhir (Sesi 8):** Sesi 1 s/d 7 mencatat biaya per-sesi Rp 0, dan tagihan akumulasi penuh 1 blok (Rp 500.000 / Rp 600.000) baru otomatis ditagihkan pada Sesi 8.
+* Keterangan skema penagihan tercatat rapi pada database, kartu pasien, serta nota bukti pembayaran.
 
 ---
 

@@ -77,6 +77,19 @@ export const parseAppointmentNotes = (rawNotes = '') => {
   const overtimeMinutes = overtimeMatch ? parseInt(overtimeMatch[1], 10) : 0;
   const overtimeFee = overtimeMatch ? parseInt(overtimeMatch[2].replace(/\./g, ''), 10) : 0;
 
+  // Ekstrak Opsional Laporan Hasil Pemeriksaan Psikologis
+  const reportMatch = notes.match(/\[Laporan Psikologis:\s*Ya(?:\s*-\s*Rp\s*([0-9.]+))?\]/i);
+  const includePsychologicalReport = Boolean(reportMatch);
+  const psychologicalReportFee = reportMatch && reportMatch[1]
+    ? parseInt(reportMatch[1].replace(/\./g, ''), 10)
+    : (includePsychologicalReport ? 150000 : 0);
+
+  // Ekstrak Skema Pembayaran Blok Terapis (Bayar di Awal / Bayar di Akhir)
+  const schemeMatch = notes.match(/\[Skema Blok:\s*([^\]]+)\]/i);
+  const blockPaymentScheme = schemeMatch
+    ? (schemeMatch[1].toLowerCase().includes('akhir') ? 'end' : 'start')
+    : 'start';
+
   // Ekstrak Rekam Medis Psikolog
   const anamnesaMatch = notes.match(/Anamnesa:\s*([\s\S]*?)(?=\n\s*(?:Diagnosa:|Rancangan Tindak Lanjut:|Rujukan:|$))/i);
   const anamnesa = anamnesaMatch ? anamnesaMatch[1].trim() : '';
@@ -106,6 +119,9 @@ export const parseAppointmentNotes = (rawNotes = '') => {
     durationLabel,
     overtimeMinutes,
     overtimeFee,
+    includePsychologicalReport,
+    psychologicalReportFee,
+    blockPaymentScheme,
     anamnesa,
     diagnosis,
     followUpPlan,
@@ -126,6 +142,9 @@ export const buildAppointmentNotes = ({
   discountAmount = 0,
   overtimeMinutes = 0,
   overtimeFee = 0,
+  includePsychologicalReport = false,
+  psychologicalReportFee = 150000,
+  blockPaymentScheme = 'start',
   isDirect = false,
   directMethod = '',
   existingNotes = ''
@@ -134,6 +153,16 @@ export const buildAppointmentNotes = ({
 
   if (isDirect && directMethod) {
     header += ` (Layanan Langsung Terapis: ${directMethod})`;
+  }
+
+  if (blockPaymentScheme) {
+    const schemeLabel = blockPaymentScheme === 'end' ? 'Bayar di Akhir' : 'Bayar di Awal';
+    header += ` [Skema Blok: ${schemeLabel}]`;
+  }
+
+  if (includePsychologicalReport) {
+    const fee = Number(psychologicalReportFee) || 150000;
+    header += ` [Laporan Psikologis: Ya - Rp ${fee.toLocaleString('id-ID')}]`;
   }
 
   if (voucherCode && discountAmount > 0) {

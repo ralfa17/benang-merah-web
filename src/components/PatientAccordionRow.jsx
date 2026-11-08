@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import {
   UserIcon,
   ChevronDownIcon,
@@ -107,7 +107,7 @@ export default function PatientAccordionRow({
     return null;
   }
 
-  // ── Incentive Session Indicator (hanya untuk Terapis & Master) ──
+  // Incentive Session Indicator (hanya untuk Terapis & Master)
   const incentiveSessions = sessions.filter(s => {
     const st = (s.service_type || s.category || '').toLowerCase();
     return THERAPIST_INCENTIVE_SERVICES.some(svc =>
@@ -140,7 +140,6 @@ export default function PatientAccordionRow({
               ) : (
                 <div className="flex items-center gap-2">
                   <span className="font-mono font-bold text-sm text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded-lg border border-slate-300 select-none tracking-widest">
-                    ████████
                   </span>
                   <span className="inline-flex items-center gap-1.5 bg-[#F5EBE6] text-[#6B1D2F] border border-[#E8D5CE] rounded-full px-2.5 py-0.5 text-xs font-medium">
                     <LockIcon className="w-3 h-3 text-[#6B1D2F]" />
@@ -202,7 +201,7 @@ export default function PatientAccordionRow({
               }`}
             >
               {incentiveReady
-                ? `✓ Syarat Insentif (Tgl 5)`
+                ? `Syarat Insentif (Tgl 5)`
                 : `Progression: ${incentiveCount}/${THERAPIST_INCENTIVE_SESSION_THRESHOLD} Sesi`}
             </span>
           )}
@@ -294,18 +293,28 @@ export default function PatientAccordionRow({
               }
               // Catatan: Admin (Fauzan) strictly canReadNotes = false (Privasi Medis)
 
-              const itemAdminFee = Number(item.admin_fee ?? 30000);
-              const itemTotalPrice = Number(item.price ?? 30000);
-              const hasVoucher = meta.voucherCode === 'OPENING100K';
-              const baseServicePrice = Math.max(0, itemTotalPrice - itemAdminFee + (hasVoucher ? 100000 : 0));
-              const isPaid = item.status === 'lunas';
+              const itemAdminFee = Number(item.admin_fee ?? 0);
+              const itemTotalPrice = Number(item.price ?? 0);
 
-              // Deteksi layanan paket per blok (8 sesi)
+              // Deteksi layanan paket per blok (8 sesi) & skema penagihan
               const isBlockService = THERAPIST_INCENTIVE_SERVICES.some((svc) =>
                 (item.service_type || item.category || '').toLowerCase().includes(svc.toLowerCase())
               );
               const sessionInBlock = ((Number(item.visit_number || 1) - 1) % 8) + 1;
-              const isSubsequentBlockSession = isBlockService && (sessionInBlock > 1 || baseServicePrice === 0);
+              const blockScheme = meta.blockPaymentScheme || 'start';
+
+              // Sesi nol-biaya: Bayar di Akhir sesi 1-7, atau Bayar di Awal sesi 2-8
+              const isZeroCostBlock = isBlockService && (
+                (blockScheme === 'end' && sessionInBlock < 8) ||
+                (blockScheme === 'start' && sessionInBlock > 1) ||
+                (isBlockService && itemTotalPrice === 0 && itemAdminFee === 0)
+              );
+              const isSubsequentBlockSession = isZeroCostBlock;
+              const effectiveItemAdminFee = isZeroCostBlock ? 0 : itemAdminFee;
+              const baseServicePrice = isZeroCostBlock
+                ? 0
+                : Math.max(0, itemTotalPrice - effectiveItemAdminFee);
+              const isPaid = item.status === 'lunas';
 
               return (
                 <div
@@ -373,15 +382,10 @@ export default function PatientAccordionRow({
                               : formatRupiah(baseServicePrice)}
                           </span>
                         </div>
-                        {hasVoucher && (
-                          <div className="flex justify-between text-emerald-700 text-[11px] font-bold">
-                            <span>Voucher (OPENING):</span>
-                            <span>- Rp 100.000</span>
-                          </div>
-                        )}
+                        
                         <div className="flex justify-between text-gray-600 text-[11px]">
                           <span>Biaya Admin:</span>
-                          <span>{formatRupiah(itemAdminFee)}</span>
+                          <span>{isZeroCostBlock ? 'Rp 0 (Paket Blok)' : formatRupiah(effectiveItemAdminFee)}</span>
                         </div>
                         {meta.overtimeFee > 0 && (
                           <div className="flex justify-between text-amber-800 text-[11px] font-semibold">
@@ -598,7 +602,7 @@ export default function PatientAccordionRow({
                         </div>
                         <div>
                           <p className="font-bold text-xs text-amber-950 flex items-center gap-1.5">
-                            <span>🔒 Terkunci (Privasi Medis)</span>
+                            <span>Terkunci (Privasi Medis)</span>
                           </p>
                           <p className="text-[11px] text-amber-800 mt-0.5 leading-relaxed">
                             {hasAdminAccess

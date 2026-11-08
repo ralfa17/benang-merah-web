@@ -10,15 +10,25 @@ export const MAX_OPENING_VOUCHER_QUOTA = 0;
 // MASTER HARGA LAYANAN 2026 - PRICELIST RESMI KLINIK BENANG MERAH
 // ============================================================
 
-// LAYANAN INDIVIDU (Psikolog)
+// BIAYA ITEM OPSIONAL
+export const PSYCHOLOGICAL_REPORT_FEE = 150000; // Laporan Hasil Pemeriksaan Psikologis
+
+// LAYANAN INDIVIDU, TES, DAN TERAPI
 export const SERVICE_PRICES = {
-  // Layanan Individu
-  'Konseling Individu (60 Menit)': 300000,
-  'Program Psikoterapi': 400000,
-  'Couple Counseling (60 Menit)': 650000,
-  'Tes IQ Individual (WISC/WAIS)': 850000,
-  'Tes Skrining ADHD (DIVA-5)': 500000,
-  'Asesmen Tumbuh Kembang Preschool': 300000,
+  // Layanan Psikologi & Konseling Resmi 2026
+  'Konseling Anak, Remaja, Dewasa (60 menit)': 300000,
+  'Konseling Couple (Pra Nikah) (60 menit)': 500000,
+  'Konseling Marital / Rumah Tangga (60 menit)': 700000,
+  'Konseling Keluarga (60 menit)': 800000,
+  'Psikoterapi': 400000,
+  'Asesmen Klinis Dewasa': 500000,
+  'Tes IQ': 350000,
+  'Tes IQ WAIS / WISC': 750000,
+  'Tes Kepribadian': 400000,
+  'Tes Minat': 450000,
+  'Tes Minat Potensial (Minat + IQ)': 600000,
+  'Tes CTKI': 450000,
+  'Laporan Hasil Pemeriksaan Psikologis': 150000,
 
   // Layanan Anak & Terapi Khusus
   'Terapi Anak Spesial': 150000,
@@ -33,12 +43,16 @@ export const SERVICE_PRICES = {
   'Analisis Jabatan Pimpinan': 700000,
   'Outbound / Forest Therapy': 300000,
 
-  // Legacy/Compatibility (agar data lama tidak rusak)
+  // Legacy/Compatibility (agar appointment lama tetap terpetakan harga aslinya)
+  'Konseling Individu (60 Menit)': 300000,
   'Konseling Individu': 300000,
-  'Psikoterapi': 400000,
+  'Program Psikoterapi': 400000,
+  'Couple Counseling (60 Menit)': 500000,
+  'Konseling Pasangan (Couple)': 500000,
+  'Tes IQ Individual (WISC/WAIS)': 750000,
+  'Tes Skrining ADHD (DIVA-5)': 500000,
+  'Asesmen Tumbuh Kembang Preschool': 300000,
   'Terapi Anak': 150000,
-  'Konseling Pasangan (Couple)': 650000,
-  'Konseling Keluarga': 600000,
   'Assessment / Intake Interview': 300000,
   'Pra Literasi': 500000,
   'Play and Grow': 150000

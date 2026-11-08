@@ -42,7 +42,8 @@ import {
   MAX_OPENING_VOUCHER_QUOTA,
   SERVICE_PRICES,
   THERAPIST_INCENTIVE_SERVICES,
-  THERAPIST_INCENTIVE_SESSION_THRESHOLD
+  THERAPIST_INCENTIVE_SESSION_THRESHOLD,
+  PSYCHOLOGICAL_REPORT_FEE
 } from './lib/constants';
 import {
   buildAppointmentNotes,
@@ -152,6 +153,8 @@ export default function App() {
     adminFeeInput: 30000,
     overtimeMinutes: 0,
     overtimeFee: 0,
+    includePsychologicalReport: false,
+    blockPaymentScheme: 'start', // 'start' (Bayar di Awal) | 'end' (Bayar di Akhir)
     voucherInput: '',
     discountApplied: 0
   });
@@ -463,8 +466,24 @@ export default function App() {
       const parsedAdminFee = Number(formData.adminFeeInput) || 0;
       const baseServicePrice = Number(formData.customServicePrice) || 0;
       const overtimeFeeNum = Number(formData.overtimeFee) || 0;
-      const finalServicePriceAfterDiscount = Math.max(0, baseServicePrice - formData.discountApplied);
-      const totalCalculatedPrice = finalServicePriceAfterDiscount + parsedAdminFee + overtimeFeeNum;
+      const psychologicalReportFeeNum = formData.includePsychologicalReport ? PSYCHOLOGICAL_REPORT_FEE : 0;
+
+      // Hitung apakah sesi ini adalah sesi nol-biaya pada paket blok terapis
+      const isDirectBlock = isDirect && THERAPIST_INCENTIVE_SERVICES.some((svc) =>
+        (formData.directTherapyMethod || '').toLowerCase().includes(svc.toLowerCase())
+      );
+      const sessionInBlockReg = ((parseInt(formData.visitNumber, 10) || 1) - 1) % 8 + 1;
+      const isZeroCostBlock = isDirectBlock && (
+        (formData.blockPaymentScheme === 'end' && sessionInBlockReg < 8) ||
+        (formData.blockPaymentScheme === 'start' && sessionInBlockReg > 1)
+      );
+
+      // Jika sesi nol-biaya: admin fee = 0, service price = 0, total = 0
+      const effectiveAdminFee = isZeroCostBlock ? 0 : parsedAdminFee;
+      const finalServicePriceAfterDiscount = isZeroCostBlock ? 0 : Math.max(0, baseServicePrice - formData.discountApplied);
+      const totalCalculatedPrice = isZeroCostBlock
+        ? 0
+        : finalServicePriceAfterDiscount + effectiveAdminFee + overtimeFeeNum + psychologicalReportFeeNum;
 
       const initialNotes = buildAppointmentNotes({
         patientName: formData.patientName,
@@ -475,6 +494,9 @@ export default function App() {
         discountAmount: formData.discountApplied,
         overtimeMinutes: Number(formData.overtimeMinutes) || 0,
         overtimeFee: overtimeFeeNum,
+        includePsychologicalReport: formData.includePsychologicalReport,
+        psychologicalReportFee: psychologicalReportFeeNum,
+        blockPaymentScheme: formData.blockPaymentScheme,
         isDirect,
         directMethod: formData.directTherapyMethod
       });
@@ -494,7 +516,7 @@ export default function App() {
           age: parseInt(formData.patientAge, 10) || 0,
           visit_number: parseInt(formData.visitNumber, 10) || 1,
           price: totalCalculatedPrice,
-          admin_fee: parsedAdminFee
+          admin_fee: effectiveAdminFee  // Rp 0 untuk sesi nol-biaya paket blok
         }
       ]);
 
@@ -515,6 +537,8 @@ export default function App() {
         customServicePrice: 0,
         overtimeMinutes: 0,
         overtimeFee: 0,
+        includePsychologicalReport: false,
+        blockPaymentScheme: 'start',
         voucherInput: '',
         discountApplied: 0
       }));

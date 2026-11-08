@@ -23,20 +23,33 @@ export default function ReceiptModal({
   const isPaid = appointment.status === 'lunas' || receiptType === 'paid';
   const meta = parseAppointmentNotes(appointment.notes);
 
-  const adminFee = Number(appointment.admin_fee ?? 30000);
-  const totalAmount = Number(appointment.price ?? 30000);
-  const hasVoucher = meta.voucherCode === 'OPENING100K';
-
   // Deteksi layanan paket per blok (8 sesi)
   const isBlockService = THERAPIST_INCENTIVE_SERVICES.some((svc) =>
     (appointment.service_type || appointment.category || '').toLowerCase().includes(svc.toLowerCase())
   );
   const sessionInBlock = ((Number(appointment.visit_number || 1) - 1) % 8) + 1;
-  const isSubsequentBlockSession = isBlockService && (sessionInBlock > 1 || totalAmount === 0);
+  const blockScheme = meta.blockPaymentScheme || 'start'; // 'start' (Bayar di Awal) | 'end' (Bayar di Akhir)
 
-  const baseServicePrice = isSubsequentBlockSession && totalAmount === 0
+  // Sesi nol-biaya: Bayar di Akhir sesi 1–7, atau Bayar di Awal sesi 2–8
+  const isZeroCostBlockSession = isBlockService && (
+    (blockScheme === 'end' && sessionInBlock < 8) ||
+    (blockScheme === 'start' && sessionInBlock > 1) ||
+    Number(appointment.price ?? 0) === 0
+  );
+  const isFinalPayBlockSession = isBlockService && blockScheme === 'end' && sessionInBlock === 8;
+
+  // Ambil data keuangan langsung dari database (sudah benar sejak insert)
+  const totalAmount = Number(appointment.price ?? 0);
+  // Untuk sesi nol-biaya, admin_fee tersimpan 0 di DB; fallback ke 30000 hanya jika bukan sesi nol-biaya
+  const adminFee = isZeroCostBlockSession ? 0 : Number(appointment.admin_fee ?? 30000);
+  const hasVoucher = meta.voucherCode === 'OPENING100K';
+
+  const reportFee = meta.includePsychologicalReport ? Number(meta.psychologicalReportFee || 150000) : 0;
+  const overtimeFee = Number(meta.overtimeFee || 0);
+
+  const baseServicePrice = isZeroCostBlockSession
     ? 0
-    : (SERVICE_PRICES[appointment.service_type] || Math.max(0, totalAmount - adminFee + (hasVoucher ? 100000 : 0)));
+    : (SERVICE_PRICES[appointment.service_type] || Math.max(0, totalAmount - adminFee - reportFee - overtimeFee + (hasVoucher ? 100000 : 0)));
 
   // UNDUH STRUK SEBAGAI GAMBAR PNG KE GALERI HP / LAPTOP
   const handleDownloadPng = async () => {
@@ -137,19 +150,25 @@ export default function ReceiptModal({
     msg += `*Handle By:* ${meta.handleBy}\n`;
     msg += `*Metode Bayar:* ${meta.paymentMethod}\n`;
     msg += `-------------------------------------------\n`;
-    if (isSubsequentBlockSession && baseServicePrice === 0) {
-      msg += `Biaya Layanan: Paket 1 Blok (Sesi #${sessionInBlock}/8) — Rp 0 (Termasuk Paket)\n`;
+    if (isZeroCostBlockSession && totalAmount === 0) {
+      const schemeText = blockScheme === 'end' ? 'Ditagihkan pada Sesi 8' : 'Lunas pada Sesi 1';
+      msg += `Biaya Layanan: Paket 1 Blok (Sesi #${sessionInBlock}/8) — Rp 0 (${schemeText})\n`;
+    } else if (isFinalPayBlockSession) {
+      msg += `Biaya Layanan: Paket 1 Blok (Sesi Akhir #${sessionInBlock}/8) — ${formatRupiah(baseServicePrice)}\n`;
     } else {
       msg += `Biaya Layanan: ${formatRupiah(baseServicePrice)}\n`;
+    }
+    if (meta.includePsychologicalReport) {
+      msg += `Laporan Hasil Pemeriksaan Psikologis: +${formatRupiah(reportFee)}\n`;
     }
     if (hasVoucher) {
       msg += `Voucher Diskon (OPENING100K): -Rp 100.000\n`;
     }
-    if (meta.overtimeFee > 0) {
-      msg += `Overtime / Kelebihan Sesi (${meta.overtimeMinutes || 0} Menit): +${formatRupiah(meta.overtimeFee)}\n`;
+    if (overtimeFee > 0) {
+      msg += `Overtime / Kelebihan Sesi (${meta.overtimeMinutes || 0} Menit): +${formatRupiah(overtimeFee)}\n`;
     }
-    msg += `Biaya Administrasi: ${formatRupiah(adminFee)}\n`;
-    msg += `*TOTAL ${isPaid ? 'BAYAR' : 'TAGIHAN'}: ${totalAmount === 0 && isSubsequentBlockSession ? 'Rp 0 (Termasuk Paket Blok)' : formatRupiah(totalAmount)}*\n`;
+    msg += `Biaya Administrasi: ${isZeroCostBlockSession ? 'Rp 0 (Paket Blok)' : formatRupiah(adminFee)}\n`;
+    msg += `*TOTAL ${isPaid ? 'BAYAR' : 'TAGIHAN'}: ${isZeroCostBlockSession ? 'Rp 0 (Termasuk Paket Blok)' : formatRupiah(totalAmount)}*\n`;
     msg += `-------------------------------------------\n`;
     if (!isPaid) {
       msg += `Status: *MENUNGGU PEMBAYARAN*\n`;
@@ -236,8 +255,15 @@ export default function ReceiptModal({
             <div class="border-t border-b text-xs" style="margin: 10px 0; padding: 8px 0;">
               <div class="flex-between">
                 <span>Biaya Layanan / Sesi:</span>
-                <span>${isSubsequentBlockSession && baseServicePrice === 0 ? `Paket 1 Blok (Sesi #${sessionInBlock}/8) — Rp 0 (Termasuk Paket)` : formatRupiah(baseServicePrice)}</span>
+                <span>${isZeroCostBlockSession && totalAmount === 0 ? `Paket 1 Blok (Sesi #${sessionInBlock}/8) — Rp 0 (${blockScheme === 'end' ? 'Ditagihkan pada Sesi 8' : 'Termasuk Paket'})` : (isFinalPayBlockSession ? `Paket 1 Blok (Sesi Akhir #${sessionInBlock}/8) — ${formatRupiah(baseServicePrice)}` : formatRupiah(baseServicePrice))}</span>
               </div>
+
+              ${meta.includePsychologicalReport ? `
+                <div class="flex-between" style="color:#701A24; font-weight:bold;">
+                  <span>Laporan Hasil Pemeriksaan Psikologis:</span>
+                  <span>+ ${formatRupiah(reportFee)}</span>
+                </div>
+              ` : ''}
 
               ${hasVoucher ? `
                 <div class="flex-between" style="color:#047857; font-weight:bold;">
@@ -246,46 +272,21 @@ export default function ReceiptModal({
                 </div>
               ` : ''}
 
-              ${meta.overtimeFee > 0 ? `
+              ${overtimeFee > 0 ? `
                 <div class="flex-between" style="color:#92400E; font-weight:bold;">
                   <span>Overtime / Kelebihan Sesi (${meta.overtimeMinutes || 0} Menit):</span>
-                  <span>+ ${formatRupiah(meta.overtimeFee)}</span>
+                  <span>+ ${formatRupiah(overtimeFee)}</span>
                 </div>
               ` : ''}
 
               <div class="flex-between">
                 <span>Biaya Administrasi:</span>
-                <span>${formatRupiah(adminFee)}</span>
+                <span>${isZeroCostBlockSession ? 'Rp 0 (Paket Blok)' : formatRupiah(adminFee)}</span>
               </div>
 
               <div class="flex-between font-bold text-sm" style="color:#701A24; margin-top:6px; border-top:1px dashed #ccc; padding-top:6px;">
                 <span>TOTAL ${isPaid ? 'BAYAR' : 'TAGIHAN'}:</span>
-                <span>${totalAmount === 0 && isSubsequentBlockSession ? 'Rp 0 (Termasuk Paket Blok)' : formatRupiah(totalAmount)}</span>
-              </div>
-            </div>
-
-              ${hasVoucher ? `
-                <div class="flex-between" style="color:#047857; font-weight:bold;">
-                  <span>Voucher Diskon (OPENING100K):</span>
-                  <span>- Rp 100.000</span>
-                </div>
-              ` : ''}
-
-              ${meta.overtimeFee > 0 ? `
-                <div class="flex-between" style="color:#92400E; font-weight:bold;">
-                  <span>Overtime / Kelebihan Sesi (${meta.overtimeMinutes || 0} Menit):</span>
-                  <span>+ ${formatRupiah(meta.overtimeFee)}</span>
-                </div>
-              ` : ''}
-
-              <div class="flex-between">
-                <span>Biaya Administrasi:</span>
-                <span>${formatRupiah(adminFee)}</span>
-              </div>
-
-              <div class="flex-between font-bold text-sm" style="color:#701A24; margin-top:6px; border-top:1px dashed #ccc; padding-top:6px;">
-                <span>TOTAL ${isPaid ? 'BAYAR' : 'TAGIHAN'}:</span>
-                <span>${formatRupiah(totalAmount)}</span>
+                <span>${isZeroCostBlockSession ? 'Rp 0 (Termasuk Paket Blok)' : formatRupiah(totalAmount)}</span>
               </div>
             </div>
 
@@ -461,11 +462,18 @@ export default function ReceiptModal({
             <div style={{ display: 'flex', justifyContent: 'space-between', color: '#475569' }}>
               <span>Biaya Layanan / Sesi:</span>
               <span>
-                {isSubsequentBlockSession && baseServicePrice === 0
-                  ? `Paket 1 Blok (Sesi #${sessionInBlock}/8) — Rp 0 (Termasuk Paket)`
-                  : formatRupiah(baseServicePrice)}
+                {isZeroCostBlockSession && totalAmount === 0
+                  ? `Paket 1 Blok (Sesi #${sessionInBlock}/8) — Rp 0 (${blockScheme === 'end' ? 'Ditagihkan pada Sesi 8' : 'Termasuk Paket'})`
+                  : (isFinalPayBlockSession ? `Paket 1 Blok (Sesi Akhir #${sessionInBlock}/8) — ${formatRupiah(baseServicePrice)}` : formatRupiah(baseServicePrice))}
               </span>
             </div>
+
+            {meta.includePsychologicalReport && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', color: '#701A24', fontWeight: 'bold' }}>
+                <span>Laporan Hasil Pemeriksaan Psikologis:</span>
+                <span>+ {formatRupiah(reportFee)}</span>
+              </div>
+            )}
 
             {hasVoucher && (
               <div style={{ display: 'flex', justifyContent: 'space-between', color: '#047857', fontWeight: 'bold' }}>
@@ -474,21 +482,21 @@ export default function ReceiptModal({
               </div>
             )}
 
-            {meta.overtimeFee > 0 && (
+            {overtimeFee > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', color: '#92400E', fontWeight: 'bold' }}>
                 <span>Overtime / Kelebihan Sesi (${meta.overtimeMinutes || 0} Menit):</span>
-                <span>+ {formatRupiah(meta.overtimeFee)}</span>
+                <span>+ {formatRupiah(overtimeFee)}</span>
               </div>
             )}
 
             <div style={{ display: 'flex', justifyContent: 'space-between', color: '#475569' }}>
               <span>Biaya Administrasi:</span>
-              <span>{formatRupiah(adminFee)}</span>
+              <span>{isZeroCostBlockSession ? 'Rp 0 (Paket Blok)' : formatRupiah(adminFee)}</span>
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '14px', color: '#701A24', paddingTop: '6px', borderTop: '1px dashed #EADFD5' }}>
               <span>TOTAL {isPaid ? 'BAYAR' : 'TAGIHAN'}:</span>
-              <span>{totalAmount === 0 && isSubsequentBlockSession ? 'Rp 0 (Termasuk Paket Blok)' : formatRupiah(totalAmount)}</span>
+              <span>{isZeroCostBlockSession ? 'Rp 0 (Termasuk Paket Blok)' : formatRupiah(totalAmount)}</span>
             </div>
           </div>
 
