@@ -1,3 +1,4 @@
+import ExcelJS from 'exceljs';
 import * as XLSX from 'xlsx';
 import { SERVICE_PRICES, ADMIN_HANDLERS, PAYMENT_METHODS } from './constants';
 
@@ -285,11 +286,11 @@ export const exportFinancialCsv = (appointmentsList) => {
 };
 
 // ============================================================
-// HELPER INTERNAL: Simpan file Excel menggunakan SheetJS (NATIVE .xlsx BINARY)
+// HELPER INTERNAL: Simpan workbook ExcelJS (.xlsx BINARY)
 // ============================================================
-const saveXlsx = (wb, filename) => {
-  const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-  const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+const saveExcelJsWorkbook = async (workbook, filename) => {
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
@@ -300,25 +301,184 @@ const saveXlsx = (wb, filename) => {
   setTimeout(() => URL.revokeObjectURL(url), 500);
 };
 
-// EXPORT REKAP KEUANGAN KE EXCEL NATIVE (.XLSX MURNI — BUKAN HTML)
-export const exportFinancialExcel = (appointmentsList, monthLabel = '') => {
+// HELPER: Styling kondisional pada cell status pembayaran (background fill)
+const applyPaymentStatusStyle = (cell, rawStatus) => {
+  const statusStr = String(rawStatus || '').toUpperCase().trim();
+  const isPaid = statusStr === 'LUNAS' || statusStr === 'PAID';
+  const isPending = statusStr === 'PENDING' || statusStr === 'BELUM LUNAS' || statusStr === 'UNPAID';
+
+  if (isPaid) {
+    // Background HIJAU (#C6EFCE) dengan teks gelap (#006100)
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFC6EFCE' }
+    };
+    cell.font = {
+      name: 'Segoe UI',
+      size: 10,
+      bold: true,
+      color: { argb: 'FF006100' }
+    };
+    cell.alignment = { vertical: 'middle', horizontal: 'center' };
+  } else if (isPending) {
+    // Background MERAH (#FFC7CE) dengan teks gelap (#9C0006)
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFFFC7CE' }
+    };
+    cell.font = {
+      name: 'Segoe UI',
+      size: 10,
+      bold: true,
+      color: { argb: 'FF9C0006' }
+    };
+    cell.alignment = { vertical: 'middle', horizontal: 'center' };
+  } else {
+    cell.font = { name: 'Segoe UI', size: 10, color: { argb: 'FF1E293B' } };
+    cell.alignment = { vertical: 'middle', horizontal: 'center' };
+  }
+};
+
+// HELPER: Format border dan font standar tabel
+const applyStandardCellBorder = (cell) => {
+  cell.border = {
+    top: { style: 'thin', color: { argb: 'FFE0D6CE' } },
+    left: { style: 'thin', color: { argb: 'FFE0D6CE' } },
+    bottom: { style: 'thin', color: { argb: 'FFE0D6CE' } },
+    right: { style: 'thin', color: { argb: 'FFE0D6CE' } }
+  };
+};
+
+const formatHeaderRow = (row) => {
+  row.height = 28;
+  row.eachCell({ includeEmpty: true }, (cell) => {
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFF8F4F0' } // Cream Warm Benang Merah
+    };
+    cell.font = {
+      name: 'Segoe UI',
+      size: 10,
+      bold: true,
+      color: { argb: 'FF701A24' } // Maroon Benang Merah
+    };
+    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+    applyStandardCellBorder(cell);
+  });
+};
+
+// HELPER: Tambahkan Blok Ringkasan Rekapitulasi Pembayaran (Breakdown 3 Bagian)
+// 1. TOTAL KESELURUHAN NOMINAL (Lunas + Pending)
+// 2. TOTAL DANA LUNAS (Status: Lunas)
+// 3. TOTAL DANA PENDING (Status: Belum Lunas)
+const addPaymentSummaryBlock = (worksheet, { totalAll = 0, totalLunas = 0, totalPending = 0, countAll = 0, countLunas = 0, countPending = 0, startCol = 1 }) => {
+  // Baris kosong pemisah
+  worksheet.addRow([]);
+
+  // Baris Judul Blok Ringkasan
+  const sectionTitleRow = worksheet.addRow(['RINGKASAN REKAPITULASI PEMBAYARAN PASIEN']);
+  sectionTitleRow.height = 24;
+  const tCell = sectionTitleRow.getCell(startCol);
+  tCell.font = { name: 'Segoe UI', size: 11, bold: true, color: { argb: 'FF701A24' } };
+
+  // 1. TOTAL KESELURUHAN NOMINAL
+  const rowAll = worksheet.addRow([
+    'TOTAL KESELURUHAN NOMINAL (LUNAS + PENDING)',
+    totalAll,
+    `${countAll || 0} Pasien / Transaksi`
+  ]);
+  rowAll.height = 22;
+  rowAll.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+    applyStandardCellBorder(cell);
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF5EBE6' } };
+    cell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FF2C1810' } };
+    if (colNumber === 2) {
+      cell.numFmt = '"Rp" #,##0';
+      cell.alignment = { vertical: 'middle', horizontal: 'right' };
+    }
+  });
+
+  // 2. TOTAL DANA LUNAS
+  const rowLunas = worksheet.addRow([
+    'TOTAL DANA LUNAS (STATUS: SUDAH LUNAS)',
+    totalLunas,
+    `${countLunas || 0} Transaksi Lunas`
+  ]);
+  rowLunas.height = 22;
+  rowLunas.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+    applyStandardCellBorder(cell);
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8F5E9' } };
+    cell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FF006100' } };
+    if (colNumber === 2) {
+      cell.numFmt = '"Rp" #,##0';
+      cell.alignment = { vertical: 'middle', horizontal: 'right' };
+    }
+  });
+
+  // 3. TOTAL DANA PENDING
+  const rowPending = worksheet.addRow([
+    'TOTAL DANA PENDING (STATUS: MASIH PENDING)',
+    totalPending,
+    `${countPending || 0} Transaksi Pending`
+  ]);
+  rowPending.height = 22;
+  rowPending.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+    applyStandardCellBorder(cell);
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFEBEE' } };
+    cell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FF9C0006' } };
+    if (colNumber === 2) {
+      cell.numFmt = '"Rp" #,##0';
+      cell.alignment = { vertical: 'middle', horizontal: 'right' };
+    }
+  });
+};
+
+// EXPORT REKAP KEUANGAN KE EXCEL NATIVE (.XLSX MURNI DENGAN STYLING STATUS & BREAKDOWN NOMINAL)
+export const exportFinancialExcel = async (appointmentsList, monthLabel = '') => {
   if (!appointmentsList || appointmentsList.length === 0) {
     alert('Belum ada data pendaftaran untuk diunduh.');
     return;
   }
 
-  const headers = [
-    'No', 'Tanggal Sesi', 'Jam Sesi', 'Nama Pasien', 'Usia', 'Sesi Ke-',
-    'Layanan', 'Psikolog PJ', 'Terapis PJ', 'Biaya Layanan (Rp)',
-    'Biaya Admin (Rp)', 'Total Bayar (Rp)', 'Metode Pembayaran',
-    'Handle By Admin', 'Status Pembayaran'
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'Klinik Benang Merah';
+  workbook.created = new Date();
+
+  const sheetTitle = monthLabel ? `Rekap ${monthLabel}` : 'Rekap Keuangan';
+  const worksheet = workbook.addWorksheet(sheetTitle.slice(0, 31));
+
+  worksheet.columns = [
+    { header: 'No', key: 'no', width: 6 },
+    { header: 'Tanggal Sesi', key: 'booking_date', width: 14 },
+    { header: 'Jam Sesi', key: 'booking_time', width: 12 },
+    { header: 'Nama Pasien', key: 'patient_name', width: 28 },
+    { header: 'Usia', key: 'age', width: 10 },
+    { header: 'Sesi Ke-', key: 'visit_number', width: 10 },
+    { header: 'Layanan', key: 'service_type', width: 28 },
+    { header: 'Psikolog PJ', key: 'doctor_name', width: 30 },
+    { header: 'Terapis PJ', key: 'assigned_terapis', width: 25 },
+    { header: 'Biaya Layanan (Rp)', key: 'service_price', width: 18 },
+    { header: 'Biaya Admin (Rp)', key: 'admin_fee', width: 16 },
+    { header: 'Total Bayar (Rp)', key: 'total_price', width: 18 },
+    { header: 'Metode Pembayaran', key: 'payment_method', width: 20 },
+    { header: 'Handle By Admin', key: 'handle_by', width: 16 },
+    { header: 'Status Pembayaran', key: 'status', width: 18 }
   ];
+
+  formatHeaderRow(worksheet.getRow(1));
 
   let totalAllRevenue = 0;
   let totalAdminRevenue = 0;
   let totalServiceRevenue = 0;
+  let totalDanaLunas = 0;
+  let totalDanaPending = 0;
+  let countLunas = 0;
+  let countPending = 0;
 
-  const rows = appointmentsList.map((item, index) => {
+  appointmentsList.forEach((item, index) => {
     const meta = parseAppointmentNotes(item.notes);
     const adminFee = Number(item.admin_fee ?? 30000);
     const totalBayar = Number(item.price ?? 30000);
@@ -329,143 +489,391 @@ export const exportFinancialExcel = (appointmentsList, monthLabel = '') => {
     totalAdminRevenue += adminFee;
     totalServiceRevenue += baseServicePrice;
 
-    return [
-      index + 1,
-      item.booking_date || '-',
-      item.booking_time || '-',
-      item.patient_name || '-',
-      item.age ? `${item.age} Thn` : '-',
-      item.visit_number || 1,
-      item.service_type || item.category || 'Konseling',
-      item.doctor_name || '-',
-      item.assigned_terapis || 'Tidak Ada',
-      baseServicePrice,
-      adminFee,
-      totalBayar,
-      meta.paymentMethod || 'QRIS',
-      meta.handleBy || 'Fauzan',
-      item.status === 'lunas' ? 'LUNAS' : 'PENDING'
-    ];
+    const isLunas = (item.status || '').toLowerCase() === 'lunas';
+    if (isLunas) {
+      totalDanaLunas += totalBayar;
+      countLunas++;
+    } else {
+      totalDanaPending += totalBayar;
+      countPending++;
+    }
+
+    const statusText = isLunas ? 'LUNAS' : 'PENDING';
+
+    const row = worksheet.addRow({
+      no: index + 1,
+      booking_date: item.booking_date || '-',
+      booking_time: item.booking_time || '-',
+      patient_name: item.patient_name || '-',
+      age: item.age ? `${item.age} Thn` : '-',
+      visit_number: item.visit_number || 1,
+      service_type: item.service_type || item.category || 'Konseling',
+      doctor_name: item.doctor_name || '-',
+      assigned_terapis: item.assigned_terapis || 'Tidak Ada',
+      service_price: baseServicePrice,
+      admin_fee: adminFee,
+      total_price: totalBayar,
+      payment_method: meta.paymentMethod || 'QRIS',
+      handle_by: meta.handleBy || 'Fauzan',
+      status: statusText
+    });
+
+    row.height = 22;
+
+    row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+      applyStandardCellBorder(cell);
+      cell.font = { name: 'Segoe UI', size: 10, color: { argb: 'FF1E293B' } };
+      cell.alignment = { vertical: 'middle', horizontal: 'left' };
+
+      // Angka nomor & sesi di-center
+      if (colNumber === 1 || colNumber === 5 || colNumber === 6) {
+        cell.alignment = { vertical: 'middle', horizontal: 'center' };
+      }
+      // Nominal Currency Rupiah rata kanan
+      if (colNumber === 10 || colNumber === 11 || colNumber === 12) {
+        cell.numFmt = '"Rp" #,##0';
+        cell.alignment = { vertical: 'middle', horizontal: 'right' };
+      }
+      // Status Pembayaran dengan conditional background fill (MERAH / HIJAU)
+      if (colNumber === 15) {
+        applyPaymentStatusStyle(cell, statusText);
+      }
+    });
   });
 
-  // Baris total rekapitulasi
-  rows.push([
-    '', '', '', '', '', '', '', '', 'TOTAL REKAPITULASI:',
-    totalServiceRevenue, totalAdminRevenue, totalAllRevenue, '', '', ''
-  ]);
+  // Baris Total Rekapitulasi Tabel Pasien
+  const totalRow = worksheet.addRow({
+    no: '',
+    booking_date: '',
+    booking_time: '',
+    patient_name: '',
+    age: '',
+    visit_number: '',
+    service_type: '',
+    doctor_name: '',
+    assigned_terapis: 'TOTAL REKAPITULASI:',
+    service_price: totalServiceRevenue,
+    admin_fee: totalAdminRevenue,
+    total_price: totalAllRevenue,
+    payment_method: '',
+    handle_by: '',
+    status: ''
+  });
 
-  const wsData = [headers, ...rows];
-  const ws = XLSX.utils.aoa_to_sheet(wsData);
+  totalRow.height = 24;
+  totalRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+    applyStandardCellBorder(cell);
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFF5EBE6' }
+    };
+    cell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FF701A24' } };
+    if (colNumber === 9) {
+      cell.alignment = { vertical: 'middle', horizontal: 'right' };
+    }
+    if (colNumber === 10 || colNumber === 11 || colNumber === 12) {
+      cell.numFmt = '"Rp" #,##0';
+      cell.alignment = { vertical: 'middle', horizontal: 'right' };
+    }
+  });
 
-  // Set lebar kolom agar rapi
-  ws['!cols'] = [
-    { wch: 4 }, { wch: 13 }, { wch: 10 }, { wch: 25 }, { wch: 7 },
-    { wch: 7 }, { wch: 30 }, { wch: 32 }, { wch: 25 }, { wch: 16 },
-    { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 15 }, { wch: 12 }
-  ];
-
-  const wb = XLSX.utils.book_new();
-  const sheetTitle = monthLabel ? `Rekap ${monthLabel}` : 'Rekap Keuangan';
-  XLSX.utils.book_append_sheet(wb, ws, sheetTitle);
+  // Blok Ringkasan Rekapitulasi Pembayaran (Breakdown 3 Bagian: Total Keseluruhan, Dana Lunas, Dana Pending)
+  addPaymentSummaryBlock(worksheet, {
+    totalAll: totalAllRevenue,
+    totalLunas: totalDanaLunas,
+    totalPending: totalDanaPending,
+    countAll: appointmentsList.length,
+    countLunas,
+    countPending
+  });
 
   const dateStr = new Date().toISOString().slice(0, 10);
   const suffix = monthLabel ? `_${monthLabel.replace(/\s+/g, '_')}` : '';
-  saveXlsx(wb, `Rekap_Keuangan_BenangMerah${suffix}_${dateStr}.xlsx`);
+  await saveExcelJsWorkbook(workbook, `Rekap_Keuangan_BenangMerah${suffix}_${dateStr}.xlsx`);
 };
 
-
-
-// EXPORT PROGRESS REKAM MEDIS TERAPIS KE EXCEL NATIVE (.XLSX MURNI)
-export const exportTherapistExcel = (myPatients, userName, monthLabel = '') => {
+// EXPORT PROGRESS REKAM MEDIS TERAPIS KE EXCEL NATIVE (.XLSX DENGAN STYLING STATUS & BREAKDOWN NOMINAL)
+export const exportTherapistExcel = async (myPatients, userName, monthLabel = '') => {
   if (!myPatients || myPatients.length === 0) {
     alert(`Belum ada data pasien rujukan khusus untuk ${userName}.`);
     return;
   }
 
-  const headers = [
-    'No', 'Tanggal', 'Jam', 'Nama Pasien', 'Usia', 'Sesi Ke-',
-    'Layanan', 'Psikolog PJ', 'Catatan Rekam Medis & Progress Terapi', 'Status'
-  ];
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'Klinik Benang Merah';
+  workbook.created = new Date();
 
-  const rows = myPatients.map((item, index) => [
-    index + 1,
-    item.booking_date || '-',
-    item.booking_time || '-',
-    item.patient_name || '-',
-    item.age ? `${item.age} Thn` : '-',
-    item.visit_number || 1,
-    (item.service_type || item.category || 'Terapi Anak').toUpperCase(),
-    item.doctor_name || '-',
-    (item.notes || '-'),
-    (item.status || 'pending').toUpperCase()
-  ]);
-
-  const wsData = [headers, ...rows];
-  const ws = XLSX.utils.aoa_to_sheet(wsData);
-
-  ws['!cols'] = [
-    { wch: 4 }, { wch: 13 }, { wch: 10 }, { wch: 25 }, { wch: 7 },
-    { wch: 7 }, { wch: 30 }, { wch: 32 }, { wch: 60 }, { wch: 12 }
-  ];
-
-  const wb = XLSX.utils.book_new();
   const sheetTitle = monthLabel ? `Rekap ${monthLabel}` : 'Progress Terapis';
-  XLSX.utils.book_append_sheet(wb, ws, sheetTitle);
+  const worksheet = workbook.addWorksheet(sheetTitle.slice(0, 31));
+
+  worksheet.columns = [
+    { header: 'No', key: 'no', width: 6 },
+    { header: 'Tanggal', key: 'booking_date', width: 14 },
+    { header: 'Jam', key: 'booking_time', width: 12 },
+    { header: 'Nama Pasien', key: 'patient_name', width: 28 },
+    { header: 'Usia', key: 'age', width: 10 },
+    { header: 'Sesi Ke-', key: 'visit_number', width: 10 },
+    { header: 'Layanan', key: 'service_type', width: 28 },
+    { header: 'Psikolog PJ', key: 'doctor_name', width: 30 },
+    { header: 'Catatan Rekam Medis & Progress Terapi', key: 'notes', width: 50 },
+    { header: 'Biaya Layanan (Rp)', key: 'price', width: 18 },
+    { header: 'Status Pembayaran', key: 'status', width: 18 }
+  ];
+
+  formatHeaderRow(worksheet.getRow(1));
+
+  let totalAllRevenue = 0;
+  let totalDanaLunas = 0;
+  let totalDanaPending = 0;
+  let countLunas = 0;
+  let countPending = 0;
+
+  myPatients.forEach((item, index) => {
+    const isLunas = (item.status || '').toLowerCase() === 'lunas';
+    const statusText = isLunas ? 'LUNAS' : 'PENDING';
+    const totalBayar = Number(item.price ?? SERVICE_PRICES[item.service_type] ?? 30000);
+
+    totalAllRevenue += totalBayar;
+    if (isLunas) {
+      totalDanaLunas += totalBayar;
+      countLunas++;
+    } else {
+      totalDanaPending += totalBayar;
+      countPending++;
+    }
+
+    const row = worksheet.addRow({
+      no: index + 1,
+      booking_date: item.booking_date || '-',
+      booking_time: item.booking_time || '-',
+      patient_name: item.patient_name || '-',
+      age: item.age ? `${item.age} Thn` : '-',
+      visit_number: item.visit_number || 1,
+      service_type: (item.service_type || item.category || 'Terapi Anak').toUpperCase(),
+      doctor_name: item.doctor_name || '-',
+      notes: item.notes || '-',
+      price: totalBayar,
+      status: statusText
+    });
+
+    row.height = 24;
+
+    row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+      applyStandardCellBorder(cell);
+      cell.font = { name: 'Segoe UI', size: 10, color: { argb: 'FF1E293B' } };
+      cell.alignment = { vertical: 'middle', horizontal: 'left' };
+
+      if (colNumber === 1 || colNumber === 5 || colNumber === 6) {
+        cell.alignment = { vertical: 'middle', horizontal: 'center' };
+      }
+      if (colNumber === 9) {
+        cell.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
+      }
+      if (colNumber === 10) {
+        cell.numFmt = '"Rp" #,##0';
+        cell.alignment = { vertical: 'middle', horizontal: 'right' };
+      }
+      // Status Pembayaran dengan conditional background fill (MERAH / HIJAU)
+      if (colNumber === 11) {
+        applyPaymentStatusStyle(cell, statusText);
+      }
+    });
+  });
+
+  // Baris Total Rekapitulasi Tabel Terapis
+  const totalRow = worksheet.addRow({
+    no: '',
+    booking_date: '',
+    booking_time: '',
+    patient_name: '',
+    age: '',
+    visit_number: '',
+    service_type: '',
+    doctor_name: '',
+    notes: 'TOTAL REKAPITULASI TERAPI:',
+    price: totalAllRevenue,
+    status: ''
+  });
+
+  totalRow.height = 24;
+  totalRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+    applyStandardCellBorder(cell);
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFF5EBE6' }
+    };
+    cell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FF701A24' } };
+    if (colNumber === 9) {
+      cell.alignment = { vertical: 'middle', horizontal: 'right' };
+    }
+    if (colNumber === 10) {
+      cell.numFmt = '"Rp" #,##0';
+      cell.alignment = { vertical: 'middle', horizontal: 'right' };
+    }
+  });
+
+  // Blok Ringkasan Rekapitulasi Pembayaran (Breakdown 3 Bagian: Total Keseluruhan, Dana Lunas, Dana Pending)
+  addPaymentSummaryBlock(worksheet, {
+    totalAll: totalAllRevenue,
+    totalLunas: totalDanaLunas,
+    totalPending: totalDanaPending,
+    countAll: myPatients.length,
+    countLunas,
+    countPending
+  });
 
   const dateStr = new Date().toISOString().slice(0, 10);
   const suffix = monthLabel ? `_${monthLabel.replace(/\s+/g, '_')}` : '';
-  saveXlsx(wb, `Rekap_Medis_${userName.replace(/\s+/g, '_')}${suffix}_${dateStr}.xlsx`);
+  await saveExcelJsWorkbook(workbook, `Rekap_Medis_${userName.replace(/[^a-zA-Z0-9]/g, '_')}${suffix}_${dateStr}.xlsx`);
 };
 
-// EXPORT REKAP KONSELING & REKAM MEDIS PSIKOLOG KE EXCEL NATIVE (.XLSX MURNI)
-export const exportPsychologistExcel = (myPatients, userName, monthLabel = '') => {
+// EXPORT REKAP KONSELING & REKAM MEDIS PSIKOLOG KE EXCEL NATIVE (.XLSX DENGAN STYLING STATUS & BREAKDOWN NOMINAL)
+export const exportPsychologistExcel = async (myPatients, userName, monthLabel = '') => {
   if (!myPatients || myPatients.length === 0) {
     alert(`Belum ada data pendaftaran/konseling untuk ${userName}.`);
     return;
   }
 
-  const headers = [
-    'No', 'Tanggal', 'Jam', 'Nama Pasien', 'Usia', 'Sesi Ke-',
-    'Layanan', 'Psikolog PJ', 'Terapis Perujuk / Pendamping', 'Anamnesa / Keluhan', 'Diagnosa Klinis',
-    'Rencana Tindak Lanjut', 'Status'
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'Klinik Benang Merah';
+  workbook.created = new Date();
+
+  const sheetTitle = monthLabel ? `Rekap ${monthLabel}` : 'Rekap Konseling';
+  const worksheet = workbook.addWorksheet(sheetTitle.slice(0, 31));
+
+  worksheet.columns = [
+    { header: 'No', key: 'no', width: 6 },
+    { header: 'Tanggal', key: 'booking_date', width: 14 },
+    { header: 'Jam', key: 'booking_time', width: 12 },
+    { header: 'Nama Pasien', key: 'patient_name', width: 28 },
+    { header: 'Usia', key: 'age', width: 10 },
+    { header: 'Sesi Ke-', key: 'visit_number', width: 10 },
+    { header: 'Layanan', key: 'service_type', width: 28 },
+    { header: 'Psikolog PJ', key: 'doctor_name', width: 30 },
+    { header: 'Terapis Perujuk / Pendamping', key: 'terapis_pj', width: 28 },
+    { header: 'Anamnesa / Keluhan', key: 'anamnesa', width: 35 },
+    { header: 'Diagnosa Klinis', key: 'diagnosis', width: 30 },
+    { header: 'Rencana Tindak Lanjut', key: 'follow_up', width: 30 },
+    { header: 'Biaya Layanan (Rp)', key: 'price', width: 18 },
+    { header: 'Status Pembayaran', key: 'status', width: 18 }
   ];
 
-  const rows = myPatients.map((item, index) => {
+  formatHeaderRow(worksheet.getRow(1));
+
+  let totalAllRevenue = 0;
+  let totalDanaLunas = 0;
+  let totalDanaPending = 0;
+  let countLunas = 0;
+  let countPending = 0;
+
+  myPatients.forEach((item, index) => {
     const meta = parseAppointmentNotes(item.notes);
     const terapisPendamping = item.assigned_terapis || meta.internalReferral || 'Tidak Ada';
-    return [
-      index + 1,
-      item.booking_date || '-',
-      item.booking_time || '-',
-      item.patient_name || '-',
-      item.age ? `${item.age} Thn` : '-',
-      item.visit_number || 1,
-      (item.service_type || item.category || 'Konseling').toUpperCase(),
-      item.doctor_name || '-',
-      terapisPendamping,
-      meta.anamnesa || '-',
-      meta.diagnosis || '-',
-      meta.followUpPlan || '-',
-      (item.status || 'pending').toUpperCase()
-    ];
+    const isLunas = (item.status || '').toLowerCase() === 'lunas';
+    const statusText = isLunas ? 'LUNAS' : 'PENDING';
+    const totalBayar = Number(item.price ?? SERVICE_PRICES[item.service_type] ?? 30000);
+
+    totalAllRevenue += totalBayar;
+    if (isLunas) {
+      totalDanaLunas += totalBayar;
+      countLunas++;
+    } else {
+      totalDanaPending += totalBayar;
+      countPending++;
+    }
+
+    const row = worksheet.addRow({
+      no: index + 1,
+      booking_date: item.booking_date || '-',
+      booking_time: item.booking_time || '-',
+      patient_name: item.patient_name || '-',
+      age: item.age ? `${item.age} Thn` : '-',
+      visit_number: item.visit_number || 1,
+      service_type: (item.service_type || item.category || 'Konseling').toUpperCase(),
+      doctor_name: item.doctor_name || '-',
+      terapis_pj: terapisPendamping,
+      anamnesa: meta.anamnesa || '-',
+      diagnosis: meta.diagnosis || '-',
+      follow_up: meta.followUpPlan || '-',
+      price: totalBayar,
+      status: statusText
+    });
+
+    row.height = 24;
+
+    row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+      applyStandardCellBorder(cell);
+      cell.font = { name: 'Segoe UI', size: 10, color: { argb: 'FF1E293B' } };
+      cell.alignment = { vertical: 'middle', horizontal: 'left' };
+
+      if (colNumber === 1 || colNumber === 5 || colNumber === 6) {
+        cell.alignment = { vertical: 'middle', horizontal: 'center' };
+      }
+      if (colNumber === 10 || colNumber === 11 || colNumber === 12) {
+        cell.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
+      }
+      if (colNumber === 13) {
+        cell.numFmt = '"Rp" #,##0';
+        cell.alignment = { vertical: 'middle', horizontal: 'right' };
+      }
+      // Status Pembayaran dengan conditional background fill (MERAH / HIJAU)
+      if (colNumber === 14) {
+        applyPaymentStatusStyle(cell, statusText);
+      }
+    });
   });
 
-  const wsData = [headers, ...rows];
-  const ws = XLSX.utils.aoa_to_sheet(wsData);
+  // Baris Total Rekapitulasi Tabel Konseling Psikolog
+  const totalRow = worksheet.addRow({
+    no: '',
+    booking_date: '',
+    booking_time: '',
+    patient_name: '',
+    age: '',
+    visit_number: '',
+    service_type: '',
+    doctor_name: '',
+    terapis_pj: '',
+    anamnesa: '',
+    diagnosis: '',
+    follow_up: 'TOTAL REKAPITULASI KONSELING:',
+    price: totalAllRevenue,
+    status: ''
+  });
 
-  ws['!cols'] = [
-    { wch: 4 }, { wch: 13 }, { wch: 10 }, { wch: 25 }, { wch: 7 },
-    { wch: 7 }, { wch: 30 }, { wch: 32 }, { wch: 28 }, { wch: 40 },
-    { wch: 30 }, { wch: 30 }, { wch: 12 }
-  ];
+  totalRow.height = 24;
+  totalRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+    applyStandardCellBorder(cell);
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFF5EBE6' }
+    };
+    cell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FF701A24' } };
+    if (colNumber === 12) {
+      cell.alignment = { vertical: 'middle', horizontal: 'right' };
+    }
+    if (colNumber === 13) {
+      cell.numFmt = '"Rp" #,##0';
+      cell.alignment = { vertical: 'middle', horizontal: 'right' };
+    }
+  });
 
-  const wb = XLSX.utils.book_new();
-  const sheetTitle = monthLabel ? `Rekap ${monthLabel}` : 'Rekap Konseling';
-  XLSX.utils.book_append_sheet(wb, ws, sheetTitle);
+  // Blok Ringkasan Rekapitulasi Pembayaran (Breakdown 3 Bagian: Total Keseluruhan, Dana Lunas, Dana Pending)
+  addPaymentSummaryBlock(worksheet, {
+    totalAll: totalAllRevenue,
+    totalLunas: totalDanaLunas,
+    totalPending: totalDanaPending,
+    countAll: myPatients.length,
+    countLunas,
+    countPending
+  });
 
   const dateStr = new Date().toISOString().slice(0, 10);
   const suffix = monthLabel ? `_${monthLabel.replace(/\s+/g, '_')}` : '';
-  saveXlsx(wb, `Rekap_Konseling_${userName.replace(/[^a-zA-Z0-9]/g, '_')}${suffix}_${dateStr}.xlsx`);
+  await saveExcelJsWorkbook(workbook, `Rekap_Konseling_${userName.replace(/[^a-zA-Z0-9]/g, '_')}${suffix}_${dateStr}.xlsx`);
 };
 
 // ============================================================
@@ -523,6 +931,294 @@ export const getAvailableYears = (appointmentsList) => {
   const currentYear = new Date().getFullYear();
   years.add(currentYear);
   return Array.from(years).sort((a, b) => b - a);
+};
+
+// ============================================================
+// EXPORT LAPORAN SHIFT ADMIN KE EXCEL NATIVE (.XLSX MURNI)
+// KHUSUS DIAKSES OLEH ROLE MASTER (RIDHO)
+// ============================================================
+
+/**
+ * Export Laporan Shift Individual ke Excel Native (.xlsx)
+ * Berisi metadata jam kerja admin, daftar pasien shift, rincian pembayaran & status bayar
+ */
+export const exportAdminShiftExcel = async (reportData, appointmentsList = []) => {
+  if (!reportData) {
+    alert('Data laporan shift tidak valid.');
+    return;
+  }
+
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'Klinik Benang Merah';
+  workbook.created = new Date();
+
+  const sheetTitle = `Shift ${reportData.shift_date || ''}`.slice(0, 31);
+  const worksheet = workbook.addWorksheet(sheetTitle);
+
+  // Setup Kolom
+  worksheet.columns = [
+    { header: 'No', key: 'no', width: 6 },
+    { header: 'Nama Pasien', key: 'patient_name', width: 28 },
+    { header: 'Layanan / Kategori', key: 'service_type', width: 26 },
+    { header: 'Nakes PJ', key: 'doctor_name', width: 28 },
+    { header: 'Total Bayar (Rp)', key: 'price', width: 18 },
+    { header: 'Metode Pembayaran', key: 'payment_method', width: 20 },
+    { header: 'Status Pembayaran', key: 'status', width: 18 }
+  ];
+
+  // Header Metadata Section (Baris 1-9)
+  worksheet.spliceRows(1, 0,
+    ['LAPORAN SHIFT & PRESENSI OPERASIONAL ADMIN'],
+    ['KLINIK PSIKOLOGI & LAYANAN TERPADU BENANG MERAH'],
+    [''],
+    ['Nama Petugas Admin:', reportData.admin_name || '-'],
+    ['Peran / Posisi:', (reportData.admin_role || 'admin').toUpperCase()],
+    ['Tanggal Shift:', formatDate(reportData.shift_date)],
+    ['Jenis / Label Shift:', reportData.shift_label || '-'],
+    ['Jam Kerja:', `Check-in: ${reportData.check_in_time || '-'} WIB | Check-out: ${reportData.check_out_time || '-'} WIB`],
+    ['Ringkasan Operasional:', reportData.operational_summary || '-'],
+    ['']
+  );
+
+  // Styling Header Judul
+  worksheet.mergeCells('A1:G1');
+  worksheet.mergeCells('A2:G2');
+  const titleCell1 = worksheet.getCell('A1');
+  titleCell1.font = { name: 'Segoe UI', size: 14, bold: true, color: { argb: 'FF701A24' } };
+  titleCell1.alignment = { vertical: 'middle', horizontal: 'center' };
+
+  const titleCell2 = worksheet.getCell('A2');
+  titleCell2.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FF54121B' } };
+  titleCell2.alignment = { vertical: 'middle', horizontal: 'center' };
+
+  // Styling baris metadata (Baris 4-9)
+  for (let r = 4; r <= 9; r++) {
+    const lbl = worksheet.getCell(`A${r}`);
+    lbl.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FF2C1810' } };
+    const val = worksheet.getCell(`B${r}`);
+    val.font = { name: 'Segoe UI', size: 10, color: { argb: 'FF1E293B' } };
+    if (r === 9) {
+      worksheet.mergeCells(`B${r}:G${r}`);
+      val.alignment = { wrapText: true, vertical: 'top' };
+    }
+  }
+
+  // Row 11 adalah Header Tabel Pasien
+  const tableHeaderRow = worksheet.getRow(11);
+  tableHeaderRow.values = ['No', 'Nama Pasien', 'Layanan / Kategori', 'Nakes PJ', 'Total Bayar (Rp)', 'Metode Pembayaran', 'Status Pembayaran'];
+  formatHeaderRow(tableHeaderRow);
+
+  // Map data pasien yang ditangani
+  const patientsHandled = Array.isArray(reportData.patients_handled) ? reportData.patients_handled : [];
+  
+  let totalRevenueShift = 0;
+  let totalDanaLunasShift = 0;
+  let totalDanaPendingShift = 0;
+  let countLunasShift = 0;
+  let countPendingShift = 0;
+
+  patientsHandled.forEach((patientName, idx) => {
+    const norm = normalizePatientName(patientName);
+    const matched = (appointmentsList || []).find((item) => {
+      const matchName = normalizePatientName(item.patient_name) === norm;
+      const matchDate = !reportData.shift_date || item.booking_date === reportData.shift_date;
+      return matchName && matchDate;
+    }) || (appointmentsList || []).find((item) => normalizePatientName(item.patient_name) === norm);
+
+    const price = matched ? Number(matched.price ?? 30000) : 0;
+    totalRevenueShift += price;
+
+    const isLunas = matched ? (matched.status || '').toLowerCase() === 'lunas' : false;
+    if (isLunas) {
+      totalDanaLunasShift += price;
+      countLunasShift++;
+    } else {
+      totalDanaPendingShift += price;
+      countPendingShift++;
+    }
+
+    const meta = matched ? parseAppointmentNotes(matched.notes) : {};
+    const paymentMethod = meta.paymentMethod || '-';
+    const statusText = matched ? (isLunas ? 'LUNAS' : 'PENDING') : '-';
+    const nakesPj = matched ? (matched.doctor_name || matched.assigned_terapis || '-') : '-';
+    const serviceType = matched ? (matched.service_type || matched.category || '-') : '-';
+
+    const row = worksheet.addRow({
+      no: idx + 1,
+      patient_name: patientName,
+      service_type: serviceType,
+      doctor_name: nakesPj,
+      price: price,
+      payment_method: paymentMethod,
+      status: statusText
+    });
+
+    row.height = 22;
+    row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+      applyStandardCellBorder(cell);
+      cell.font = { name: 'Segoe UI', size: 10, color: { argb: 'FF1E293B' } };
+      cell.alignment = { vertical: 'middle', horizontal: 'left' };
+
+      if (colNumber === 1) {
+        cell.alignment = { vertical: 'middle', horizontal: 'center' };
+      }
+      if (colNumber === 5) {
+        cell.numFmt = '"Rp" #,##0';
+        cell.alignment = { vertical: 'middle', horizontal: 'right' };
+      }
+      if (colNumber === 7) {
+        applyPaymentStatusStyle(cell, statusText);
+      }
+    });
+  });
+
+  // Baris Total Pasien & Revenue
+  const totalRow = worksheet.addRow({
+    no: '',
+    patient_name: `TOTAL: ${patientsHandled.length} Pasien`,
+    service_type: '',
+    doctor_name: '',
+    price: totalRevenueShift,
+    payment_method: '',
+    status: ''
+  });
+  totalRow.height = 24;
+  totalRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+    applyStandardCellBorder(cell);
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFF5EBE6' }
+    };
+    cell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FF701A24' } };
+    if (colNumber === 5) {
+      cell.numFmt = '"Rp" #,##0';
+      cell.alignment = { vertical: 'middle', horizontal: 'right' };
+    }
+  });
+
+  // Blok Ringkasan Rekapitulasi Pembayaran Shift
+  addPaymentSummaryBlock(worksheet, {
+    totalAll: totalRevenueShift,
+    totalLunas: totalDanaLunasShift,
+    totalPending: totalDanaPendingShift,
+    countAll: patientsHandled.length,
+    countLunas: countLunasShift,
+    countPending: countPendingShift
+  });
+
+  // Bagian Ringkasan Transaksi per Metode Pembayaran
+  worksheet.addRow([]);
+  const sectionTitleRow = worksheet.addRow(['RINGKASAN METODE TRANSAKSI SHIFT']);
+  sectionTitleRow.getCell(1).font = { name: 'Segoe UI', size: 11, bold: true, color: { argb: 'FF701A24' } };
+
+  const paySummary = reportData.payment_summary || {};
+  const paySummaryHeaderRow = worksheet.addRow(['No', 'Metode Pembayaran', 'Jumlah Transaksi']);
+  formatHeaderRow(paySummaryHeaderRow);
+
+  let payIndex = 1;
+  let totalTrans = 0;
+  Object.entries(paySummary).forEach(([method, count]) => {
+    const c = Number(count) || 0;
+    totalTrans += c;
+    const pRow = worksheet.addRow([payIndex++, method, `${c} transaksi`]);
+    pRow.height = 20;
+    pRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+      applyStandardCellBorder(cell);
+      cell.font = { name: 'Segoe UI', size: 10, color: { argb: 'FF1E293B' } };
+      cell.alignment = { vertical: 'middle', horizontal: colNumber === 1 ? 'center' : 'left' };
+    });
+  });
+
+  // Baris Total Transaksi
+  const totalTransRow = worksheet.addRow(['', 'Total Keseluruhan Transaksi:', `${totalTrans} transaksi`]);
+  totalTransRow.height = 22;
+  totalTransRow.eachCell({ includeEmpty: true }, (cell) => {
+    applyStandardCellBorder(cell);
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF5EBE6' } };
+    cell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FF701A24' } };
+  });
+
+  const cleanAdmin = (reportData.admin_name || 'Admin').replace(/[^a-zA-Z0-9]/g, '_');
+  const dateStr = reportData.shift_date || new Date().toISOString().slice(0, 10);
+  await saveExcelJsWorkbook(workbook, `Laporan_Shift_${cleanAdmin}_${dateStr}.xlsx`);
+};
+
+/**
+ * Export Seluruh Riwayat Laporan Shift ke Excel Native (.xlsx)
+ * Menampilkan daftar seluruh laporan shift admin yang tersimpan
+ */
+export const exportAllAdminShiftsExcel = async (reportsList) => {
+  if (!reportsList || reportsList.length === 0) {
+    alert('Belum ada data laporan shift untuk diunduh.');
+    return;
+  }
+
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'Klinik Benang Merah';
+  workbook.created = new Date();
+
+  const worksheet = workbook.addWorksheet('Rekap Laporan Shift');
+
+  worksheet.columns = [
+    { header: 'No', key: 'no', width: 6 },
+    { header: 'Tanggal Shift', key: 'shift_date', width: 14 },
+    { header: 'Nama Admin', key: 'admin_name', width: 24 },
+    { header: 'Role', key: 'admin_role', width: 14 },
+    { header: 'Label Shift', key: 'shift_label', width: 28 },
+    { header: 'Jam Check-In', key: 'check_in', width: 14 },
+    { header: 'Jam Check-Out', key: 'check_out', width: 14 },
+    { header: 'Total Pasien', key: 'total_patients', width: 14 },
+    { header: 'Total Transaksi', key: 'total_trans', width: 14 },
+    { header: 'Pasien Ditangani', key: 'patients', width: 40 },
+    { header: 'Rincian Pembayaran', key: 'payments', width: 30 },
+    { header: 'Ringkasan Operasional / Catatan', key: 'summary', width: 45 }
+  ];
+
+  formatHeaderRow(worksheet.getRow(1));
+
+  reportsList.forEach((r, idx) => {
+    const patientsStr = Array.isArray(r.patients_handled) ? r.patients_handled.join(', ') : '-';
+    let payStr = '';
+    if (r.payment_summary && typeof r.payment_summary === 'object') {
+      payStr = Object.entries(r.payment_summary)
+        .filter(([, count]) => count > 0)
+        .map(([m, c]) => `${m}: ${c}x`)
+        .join(' | ');
+    }
+
+    const row = worksheet.addRow({
+      no: idx + 1,
+      shift_date: r.shift_date || '-',
+      admin_name: r.admin_name || '-',
+      admin_role: r.admin_role || 'admin',
+      shift_label: r.shift_label || '-',
+      check_in: r.check_in_time ? `${r.check_in_time} WIB` : '-',
+      check_out: r.check_out_time ? `${r.check_out_time} WIB` : '-',
+      total_patients: r.total_patients || (r.patients_handled ? r.patients_handled.length : 0),
+      total_trans: r.total_transactions || 0,
+      patients: patientsStr,
+      payments: payStr || '-',
+      summary: r.operational_summary || '-'
+    });
+
+    row.height = 24;
+    row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+      applyStandardCellBorder(cell);
+      cell.font = { name: 'Segoe UI', size: 10, color: { argb: 'FF1E293B' } };
+      cell.alignment = { vertical: 'middle', horizontal: 'left' };
+
+      if (colNumber === 1 || colNumber === 2 || colNumber === 6 || colNumber === 7 || colNumber === 8 || colNumber === 9) {
+        cell.alignment = { vertical: 'middle', horizontal: 'center' };
+      }
+      if (colNumber === 10 || colNumber === 11 || colNumber === 12) {
+        cell.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
+      }
+    });
+  });
+
+  const dateStr = new Date().toISOString().slice(0, 10);
+  await saveExcelJsWorkbook(workbook, `Rekapitulasi_Laporan_Shift_Admin_${dateStr}.xlsx`);
 };
 
 

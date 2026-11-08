@@ -238,13 +238,13 @@ export default function MonthlyRekapModal({
           </div>
 
           <div className="bg-[#FAF8F5] border border-stone-200 rounded-xl p-3.5">
-            <span className="text-[10px] font-semibold text-slate-500 block uppercase tracking-wider">Total Nominal</span>
+            <span className="text-[10px] font-semibold text-slate-500 block uppercase tracking-wider">Total Pendapatan / Fee</span>
             <div className="text-xl font-bold text-[#701A24] mt-1">
-              {hasMasterAccess || hasAdminAccess ? formatRupiah(stats.totalRevenue) : 'Terkunci'}
+              {formatRupiah(stats.totalRevenue)}
             </div>
-            {!hasMasterAccess && !hasAdminAccess && (
-              <span className="text-[10px] text-slate-400">Khusus Finansial Admin</span>
-            )}
+            <span className="text-[10px] text-slate-500">
+              Periode {periodLabel}
+            </span>
           </div>
 
           <div className="bg-[#FAF8F5] border border-stone-200 rounded-xl p-3.5">
@@ -291,27 +291,37 @@ export default function MonthlyRekapModal({
                     <th className="px-4 py-3.5">Layanan</th>
                     <th className="px-4 py-3.5">Dokter / Nakes</th>
                     <th className="px-4 py-3.5">Terapis</th>
-                    {(hasMasterAccess || hasAdminAccess) && <th className="px-4 py-3.5">Nominal</th>}
+                    <th className="px-4 py-3.5">Nominal / Fee</th>
                     <th className="px-4 py-3.5">Metode Bayar</th>
+                    <th className="px-4 py-3.5">Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-100">
                   {monthlyData.map((p, idx) => (
                     <tr key={p.id || idx} className="hover:bg-[#FAF6F2] transition-colors border-b border-stone-100 text-sm text-slate-700">
                       <td className="px-4 py-3.5 text-slate-400 text-xs">{idx + 1}</td>
-                      <td className="px-4 py-3.5 font-medium text-slate-700 text-xs">{p.date || '-'}</td>
-                      <td className="px-4 py-3.5 font-bold text-[#2C1810]">{p.name || '-'}</td>
+                      <td className="px-4 py-3.5 font-medium text-slate-700 text-xs">{p.date || p.booking_date || '-'}</td>
+                      <td className="px-4 py-3.5 font-bold text-[#2C1810]">{p.name || p.patient_name || '-'}</td>
                       <td className="px-4 py-3.5 text-slate-600 text-xs">{p.service_type || '-'}</td>
                       <td className="px-4 py-3.5 text-slate-600 text-xs">{p.doctor_name || '-'}</td>
                       <td className="px-4 py-3.5 text-slate-600 text-xs">{p.assigned_terapis || '-'}</td>
-                      {(hasMasterAccess || hasAdminAccess) && (
-                        <td className="px-4 py-3.5 font-semibold text-[#701A24] text-xs">
-                          {formatRupiah(p.total_price || p.price || 0)}
-                        </td>
-                      )}
+                      <td className="px-4 py-3.5 font-semibold text-[#701A24] text-xs">
+                        {formatRupiah(p.total_price || p.price || 0)}
+                      </td>
                       <td className="px-4 py-3.5 text-xs">
                         <span className="bg-[#F5EBE6] text-[#701A24] border border-[#E8D5CE] rounded-full px-2.5 py-0.5 text-[11px] font-medium">
                           {p.payment_method || '-'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3.5 text-xs">
+                        <span
+                          className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                            p.status === 'lunas' || p.payment_status === 'paid'
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                              : 'bg-red-50 text-red-700 border border-red-200'
+                          }`}
+                        >
+                          {p.status === 'lunas' || p.payment_status === 'paid' ? 'LUNAS' : 'PENDING'}
                         </span>
                       </td>
                     </tr>

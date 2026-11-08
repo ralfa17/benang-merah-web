@@ -12,6 +12,7 @@ import ReceiptModal from './components/ReceiptModal';
 import EditAppointmentModal from './components/EditAppointmentModal';
 import AdminShiftReport from './components/AdminShiftReport';
 import MonthlyRekapModal from './components/MonthlyRekapModal';
+import PsychologistMonthlySummaryCard from './components/PsychologistMonthlySummaryCard';
 import InstallPrompt from './components/InstallPrompt';
 import {
   DownloadIcon,
@@ -49,7 +50,8 @@ import {
   normalizePatientName,
   exportFinancialExcel,
   exportTherapistExcel,
-  exportPsychologistExcel
+  exportPsychologistExcel,
+  getAvailableYears
 } from './lib/helpers';
 
 export default function App() {
@@ -124,6 +126,9 @@ export default function App() {
   // Tab pilihan: 'azka' | 'sofia' | 'direct'
   const [activeTab, setActiveTab] = useState('azka');
   const [selectedDateFilter, setSelectedDateFilter] = useState('');
+  const [dateRangeFilter, setDateRangeFilter] = useState({ start: '', end: '' });
+  const [selectedMonthFilter, setSelectedMonthFilter] = useState(() => new Date().getMonth() + 1);
+  const [selectedYearFilter, setSelectedYearFilter] = useState(() => new Date().getFullYear());
   const [searchQuery, setSearchQuery] = useState('');
 
   // ============================================================
@@ -325,14 +330,22 @@ export default function App() {
       setUserName(fullName);
       setUserRole(role);
 
-      // Pastikan profil tersimpan di DB jika akun belum memiliki baris profile
-      if (!profile && role !== 'guest') {
-        try {
-          await supabase.from('profiles').upsert([
-            { id: currentSession.user.id, full_name: fullName, role: role }
-          ]);
-        } catch (dbErr) {
-          console.warn('Upsert profil warning:', dbErr);
+      // Pastikan profil tersimpan & tersinkron di DB
+      if (role !== 'guest') {
+        if (!profile) {
+          try {
+            await supabase.from('profiles').upsert([
+              { id: currentSession.user.id, full_name: fullName, role: role }
+            ]);
+          } catch (dbErr) {
+            console.warn('Upsert profil warning:', dbErr);
+          }
+        } else if (profile.role !== role) {
+          try {
+            await supabase.from('profiles').update({ role }).eq('id', currentSession.user.id);
+          } catch (updateErr) {
+            console.warn('Update profil role warning:', updateErr);
+          }
         }
       }
 
@@ -901,11 +914,22 @@ export default function App() {
     userName
   ]);
 
+  const availableYears = useMemo(() => {
+    return getAvailableYears(appointmentsList);
+  }, [appointmentsList]);
+
   const availableDates = useMemo(() => {
     const map = new Map();
     tabAppointments.forEach((item) => {
       const d = item.booking_date;
       if (d) {
+        // Default Dynamic Monthly Filter: Saring ke bulan & tahun berjalan atau terpilih
+        if (selectedMonthFilter > 0) {
+          const [y, m] = d.split('-').map(Number);
+          if (y !== selectedYearFilter || m !== selectedMonthFilter) {
+            return;
+          }
+        }
         map.set(d, (map.get(d) || 0) + 1);
       }
     });
@@ -913,24 +937,50 @@ export default function App() {
     return Array.from(map.entries())
       .map(([date, count]) => ({ date, count }))
       .sort((a, b) => a.date.localeCompare(b.date));
-  }, [tabAppointments]);
+  }, [tabAppointments, selectedMonthFilter, selectedYearFilter]);
 
   const filteredAppointments = useMemo(() => {
     return tabAppointments.filter((item) => {
+      // 1. Filter Tanggal Spesifik (Prioritas Tertinggi jika dipilih)
       if (selectedDateFilter && item.booking_date !== selectedDateFilter) {
         return false;
       }
 
+      // 2. Filter Rentang Tanggal (Date Range)
+      if (dateRangeFilter.start && item.booking_date && item.booking_date < dateRangeFilter.start) {
+        return false;
+      }
+      if (dateRangeFilter.end && item.booking_date && item.booking_date > dateRangeFilter.end) {
+        return false;
+      }
+
+      // 3. Dynamic Monthly Filter: Jika tidak memilih tanggal spesifik / rentang waktu, saring ke bulan & tahun berjalan/terpilih
+      if (!selectedDateFilter && !dateRangeFilter.start && !dateRangeFilter.end && selectedMonthFilter > 0) {
+        if (item.booking_date) {
+          const [y, m] = item.booking_date.split('-').map(Number);
+          if (y !== selectedYearFilter || m !== selectedMonthFilter) {
+            return false;
+          }
+        } else {
+          return false;
+        }
+      }
+
+      // 4. Filter Pencarian Teks & Tanggal (Search Query)
       if (searchQuery.trim() !== '') {
-        const q = searchQuery.toLowerCase();
+        const q = searchQuery.toLowerCase().trim();
         const nameMatch = (item.patient_name || '').toLowerCase().includes(q);
         const notesMatch = (item.notes || '').toLowerCase().includes(q);
-        return nameMatch || notesMatch;
+        const dateMatch = (item.booking_date || '').toLowerCase().includes(q);
+        const serviceMatch = (item.service_type || item.category || '').toLowerCase().includes(q);
+        const doctorMatch = (item.doctor_name || '').toLowerCase().includes(q);
+        const therapistMatch = (item.assigned_terapis || '').toLowerCase().includes(q);
+        return nameMatch || notesMatch || dateMatch || serviceMatch || doctorMatch || therapistMatch;
       }
 
       return true;
     });
-  }, [tabAppointments, selectedDateFilter, searchQuery]);
+  }, [tabAppointments, selectedDateFilter, dateRangeFilter, selectedMonthFilter, selectedYearFilter, searchQuery]);
 
   const patientGroups = useMemo(() => {
     return groupAppointmentsByPatient(filteredAppointments);
@@ -1379,6 +1429,15 @@ export default function App() {
             {/* ================================================================ */}
             <div className={`w-full order-2 lg:order-1 ${hasAdminAccess ? 'lg:col-span-7 xl:col-span-8' : 'lg:col-span-12'} space-y-6 print:border-none print:p-0`}>
 
+              {/* RINGKASAN LAPORAN BULANAN KHUSUS PSIKOLOG (NOMINAL FEE & DAFTAR PASIEN) */}
+              {hasPsychologistAccess && (
+                <PsychologistMonthlySummaryCard
+                  appointmentsList={appointmentsList}
+                  activeName={activeName}
+                  onOpenMonthlyRekap={() => setShowMonthlyRekap(true)}
+                />
+              )}
+
               <div className="bg-white p-5 sm:p-6 rounded-3xl border border-[#EADFD5] shadow-sm">
                 
                 {/* 1. NAVIGASI TAB UTAMA */}
@@ -1388,6 +1447,7 @@ export default function App() {
                     onClick={() => {
                       setActiveTab('all');
                       setSelectedDateFilter('');
+                      setDateRangeFilter({ start: '', end: '' });
                     }}
                     className={`px-4 py-2.5 rounded-2xl font-bold text-xs transition flex items-center gap-2 border shadow-xs ${
                       activeTab === 'all'
@@ -1406,6 +1466,7 @@ export default function App() {
                       onClick={() => {
                         setActiveTab(p.id);
                         setSelectedDateFilter('');
+                        setDateRangeFilter({ start: '', end: '' });
                       }}
                       className={`px-4 py-2.5 rounded-2xl font-bold text-xs transition flex items-center gap-2 border shadow-xs ${
                         activeTab === p.id
@@ -1423,6 +1484,7 @@ export default function App() {
                     onClick={() => {
                       setActiveTab('direct');
                       setSelectedDateFilter('');
+                      setDateRangeFilter({ start: '', end: '' });
                     }}
                     className={`px-4 py-2.5 rounded-2xl font-bold text-xs transition flex items-center gap-2 border shadow-xs ${
                       activeTab === 'direct'
@@ -1435,12 +1497,27 @@ export default function App() {
                   </button>
                 </div>
 
-                {/* 2. FILTER TANGGAL BERBENTUK KOTAK-KOTAK SESI */}
+                {/* 2. FILTER TANGGAL (SPESIFIK, RENTANG TANGGAL, & KOTAK SESI) */}
                 <DateFilterPills
                   availableDates={availableDates}
                   selectedDate={selectedDateFilter}
                   onSelectDate={setSelectedDateFilter}
-                  totalItemsCount={tabAppointments.length}
+                  startDate={dateRangeFilter.start}
+                  endDate={dateRangeFilter.end}
+                  onDateRangeChange={setDateRangeFilter}
+                  selectedMonth={selectedMonthFilter}
+                  onMonthChange={setSelectedMonthFilter}
+                  selectedYear={selectedYearFilter}
+                  onYearChange={setSelectedYearFilter}
+                  availableYears={availableYears}
+                  onResetAllDateFilters={() => {
+                    const today = new Date();
+                    setSelectedDateFilter('');
+                    setDateRangeFilter({ start: '', end: '' });
+                    setSelectedMonthFilter(today.getMonth() + 1);
+                    setSelectedYearFilter(today.getFullYear());
+                  }}
+                  totalItemsCount={filteredAppointments.length}
                 />
 
                 {/* 3. TOOLBAR PENCARIAN & TOTAL DATA */}

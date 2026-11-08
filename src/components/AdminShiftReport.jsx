@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
-import { formatRupiah, formatDate } from '../lib/helpers';
+import { formatRupiah, formatDate, exportAdminShiftExcel, exportAllAdminShiftsExcel } from '../lib/helpers';
 import { PAYMENT_METHODS } from '../lib/constants';
 import {
   ClipboardListIcon,
@@ -10,7 +10,8 @@ import {
   EyeIcon,
   CreditCardIcon,
   FileTextIcon,
-  UserIcon
+  UserIcon,
+  DownloadIcon
 } from './icons';
 
 // ============================================================
@@ -35,7 +36,7 @@ const formatTimeLabel = (timeStr) => (timeStr ? `${timeStr} WIB` : '-');
 // ============================================================
 // PANEL MASTER: Riwayat Laporan Shift Semua Admin
 // ============================================================
-function MasterShiftReview({ onClose }) {
+function MasterShiftReview({ onClose, appointmentsList = [] }) {
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filterDate, setFilterDate] = useState('');
@@ -96,39 +97,55 @@ function MasterShiftReview({ onClose }) {
         </div>
 
         {/* Filter Toolbar */}
-        <div className="p-4 border-b border-stone-200 bg-[#FAF8F5] flex flex-wrap gap-4 items-center">
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Filter Tanggal
-            </label>
-            <input
-              type="date"
-              value={filterDate}
-              onChange={(e) => setFilterDate(e.target.value)}
-              className="px-3 py-1.5 bg-white border border-stone-300 text-slate-800 rounded-lg text-xs font-medium focus:ring-2 focus:ring-[#701A24] focus:border-[#701A24] outline-none"
-            />
+        <div className="p-4 border-b border-stone-200 bg-[#FAF8F5] flex flex-wrap gap-4 items-center justify-between">
+          <div className="flex flex-wrap gap-4 items-center">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Filter Tanggal
+              </label>
+              <input
+                type="date"
+                value={filterDate}
+                onChange={(e) => setFilterDate(e.target.value)}
+                className="px-3 py-1.5 bg-white border border-stone-300 text-slate-800 rounded-lg text-xs font-medium focus:ring-2 focus:ring-[#701A24] focus:border-[#701A24] outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Cari Nama Admin
+              </label>
+              <input
+                type="text"
+                placeholder="Ketik nama admin..."
+                value={filterAdmin}
+                onChange={(e) => setFilterAdmin(e.target.value)}
+                className="px-3 py-1.5 bg-white border border-stone-300 text-slate-800 rounded-lg text-xs font-medium focus:ring-2 focus:ring-[#701A24] focus:border-[#701A24] outline-none w-48"
+              />
+            </div>
+            <div className="flex items-end">
+              <button
+                onClick={() => {
+                  setFilterDate('');
+                  setFilterAdmin('');
+                }}
+                className="px-3 py-1.5 bg-white hover:bg-stone-100 text-slate-700 border border-stone-300 rounded-lg text-xs font-medium transition cursor-pointer"
+              >
+                Reset
+              </button>
+            </div>
           </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Cari Nama Admin
-            </label>
-            <input
-              type="text"
-              placeholder="Ketik nama admin..."
-              value={filterAdmin}
-              onChange={(e) => setFilterAdmin(e.target.value)}
-              className="px-3 py-1.5 bg-white border border-stone-300 text-slate-800 rounded-lg text-xs font-medium focus:ring-2 focus:ring-[#701A24] focus:border-[#701A24] outline-none w-48"
-            />
-          </div>
+
+          {/* Tombol Export Excel Rekap Laporan Shift (Master Only) */}
           <div className="flex items-end">
             <button
-              onClick={() => {
-                setFilterDate('');
-                setFilterAdmin('');
-              }}
-              className="px-3 py-1.5 bg-white hover:bg-stone-100 text-slate-700 border border-stone-300 rounded-lg text-xs font-medium transition cursor-pointer"
+              type="button"
+              onClick={() => exportAllAdminShiftsExcel(reports)}
+              disabled={reports.length === 0}
+              className="px-3.5 py-1.5 bg-[#701A24] hover:bg-[#581524] text-white rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50"
+              title="Unduh seluruh rekap riwayat laporan shift ke file Excel .xlsx"
             >
-              Reset
+              <DownloadIcon className="w-3.5 h-3.5" />
+              <span>Download Excel Rekap ({reports.length})</span>
             </button>
           </div>
         </div>
@@ -215,6 +232,19 @@ function MasterShiftReview({ onClose }) {
                     </div>
                   </div>
                 )}
+
+                {/* Tombol Download Excel Laporan Shift Per Baris (Master Only) */}
+                <div className="flex justify-end pt-2 border-t border-stone-200/70">
+                  <button
+                    type="button"
+                    onClick={() => exportAdminShiftExcel(r, appointmentsList)}
+                    className="px-3 py-1.5 bg-white hover:bg-[#F5EBE6] text-[#701A24] border border-[#E8D5CE] rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+                    title={`Download file Excel (.xlsx) untuk shift ${r.admin_name} tanggal ${r.shift_date}`}
+                  >
+                    <DownloadIcon className="w-3.5 h-3.5 text-[#701A24]" />
+                    <span>Download Excel Laporan Shift (.xlsx)</span>
+                  </button>
+                </div>
               </div>
             ))
           )}
@@ -362,7 +392,12 @@ export default function AdminShiftReport({
   };
 
   if (showMasterReview && hasMasterAccess) {
-    return <MasterShiftReview onClose={() => setShowMasterReview(false)} />;
+    return (
+      <MasterShiftReview
+        onClose={() => setShowMasterReview(false)}
+        appointmentsList={appointmentsList}
+      />
+    );
   }
 
   return (
@@ -385,15 +420,45 @@ export default function AdminShiftReport({
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {/* KONTROL HAK AKSES: Tombol Download Excel Laporan Shift HANYA UNTUK MASTER */}
             {hasMasterAccess && (
-              <button
-                type="button"
-                onClick={() => setShowMasterReview(true)}
-                className="px-3 py-1.5 bg-[#FAF8F5] hover:bg-[#F5EBE6] text-[#701A24] border border-[#E8D5CE] rounded-xl text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer"
-              >
-                <EyeIcon className="w-3.5 h-3.5" />
-                <span>Lihat Semua Laporan</span>
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const shiftInfo = SHIFT_OPTIONS.find((s) => s.id === selectedShift);
+                    const shiftLabel =
+                      selectedShift === 'custom'
+                        ? `Jam Khusus (${customStart || checkInTime} – ${customEnd || checkOutTime})`
+                        : shiftInfo?.label || 'Shift Sesuai Jadwal';
+                    const reportPayload = {
+                      admin_name: userName,
+                      admin_role: userRole,
+                      shift_date: shiftDate,
+                      shift_label: shiftLabel,
+                      check_in_time: checkInTime,
+                      check_out_time: checkOutTime,
+                      operational_summary: operationalSummary || 'Ringkasan shift aktif',
+                      patients_handled: selectedPatients,
+                      payment_summary: paymentCounts
+                    };
+                    exportAdminShiftExcel(reportPayload, appointmentsList);
+                  }}
+                  className="px-3 py-1.5 bg-white hover:bg-[#F5EBE6] text-[#701A24] border border-[#E8D5CE] rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+                  title="Download data laporan shift aktif ke format Excel .xlsx (Master IT Only)"
+                >
+                  <DownloadIcon className="w-3.5 h-3.5 text-[#701A24]" />
+                  <span className="hidden sm:inline">Download Excel Shift</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowMasterReview(true)}
+                  className="px-3 py-1.5 bg-[#FAF8F5] hover:bg-[#F5EBE6] text-[#701A24] border border-[#E8D5CE] rounded-xl text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer"
+                >
+                  <EyeIcon className="w-3.5 h-3.5" />
+                  <span>Lihat Semua Laporan</span>
+                </button>
+              </>
             )}
             <button
               onClick={onClose}

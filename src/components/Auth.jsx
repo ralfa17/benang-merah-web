@@ -1,12 +1,15 @@
 import React, { useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { normalizeRole } from '../lib/roles';
 import {
   UserIcon,
   StethoscopeIcon,
   LockIcon,
   SparklesIcon,
   ShieldCheckIcon,
-  PlusIcon
+  PlusIcon,
+  EyeIcon,
+  EyeOffIcon
 } from './icons';
 
 // KREDENSIAL ANGGOTA 4 ROLE KLINIK BENANG MERAH
@@ -23,7 +26,7 @@ const ADMIN_USERS = [
     name: 'Fauzan Hamdani',
     roleTitle: 'Admin Utama Klinik',
     dbRole: 'admin',
-    email: 'fauzanhamdani@gmail.com'
+    email: 'fauzanham1234@gmail.com'
   }
 ];
 
@@ -105,6 +108,7 @@ export default function Auth({ onLoginSuccess }) {
   // Anggota yang dipilih dalam tab
   const [selectedUser, setSelectedUser] = useState(ADMIN_USERS[0]);
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ text: '', type: '' });
 
@@ -116,6 +120,8 @@ export default function Auth({ onLoginSuccess }) {
     password: '',
     confirmPassword: ''
   });
+  const [showRegPassword, setShowRegPassword] = useState(false);
+  const [showRegConfirmPassword, setShowRegConfirmPassword] = useState(false);
   const [regLoading, setRegLoading] = useState(false);
 
   // Mode Registrasi Mandiri Terapis Baru
@@ -126,6 +132,8 @@ export default function Auth({ onLoginSuccess }) {
     password: '',
     confirmPassword: ''
   });
+  const [showRegTherapistPassword, setShowRegTherapistPassword] = useState(false);
+  const [showRegTherapistConfirmPassword, setShowRegTherapistConfirmPassword] = useState(false);
   const [regTherapistLoading, setRegTherapistLoading] = useState(false);
 
   // Ganti Tab Role
@@ -135,6 +143,11 @@ export default function Auth({ onLoginSuccess }) {
     setIsRegisterTherapistMode(false);
     setMessage({ text: '', type: '' });
     setPassword('');
+    setShowPassword(false);
+    setShowRegPassword(false);
+    setShowRegConfirmPassword(false);
+    setShowRegTherapistPassword(false);
+    setShowRegTherapistConfirmPassword(false);
 
     if (roleKey === 'master') setSelectedUser(MASTER_USER);
     else if (roleKey === 'admin') setSelectedUser(ADMIN_USERS[0]);
@@ -142,7 +155,7 @@ export default function Auth({ onLoginSuccess }) {
     else if (roleKey === 'terapis') setSelectedUser(therapists[0] || THERAPIST_USERS[0]);
   };
 
-  // Submit Login
+  // Submit Login dengan validasi role ketat & error handling spesifik
   const handleLogin = async (e) => {
     e.preventDefault();
     if (!selectedUser?.email) {
@@ -161,11 +174,87 @@ export default function Auth({ onLoginSuccess }) {
 
       if (error) throw error;
 
+      if (!data?.user) {
+        throw new Error('Sesi autentikasi tidak valid.');
+      }
+
+      // Verifikasi role dari tabel profiles & metadata
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role, full_name')
+        .eq('id', data.user.id)
+        .maybeSingle();
+
+      const userEmail = data.user.email || selectedUser.email;
+      const userMetaRole = data.user.user_metadata?.role || '';
+      const userFullName = profile?.full_name || data.user.user_metadata?.full_name || selectedUser.name;
+      const resolvedRole = normalizeRole(profile?.role || userMetaRole, { email: userEmail, fullName: userFullName });
+
+      // Validasi Ketat Sesuai Tab Role yang Sedang Aktif
+      if (activeRoleTab === 'admin') {
+        if (resolvedRole !== 'admin') {
+          await supabase.auth.signOut();
+          const targetTab = resolvedRole === 'terapis' ? 'Terapis' : resolvedRole === 'psikolog' ? 'Psikolog' : resolvedRole === 'master' ? 'Master IT' : 'yang sesuai';
+          setMessage({
+            text: `Akses Ditolak: Akun (${userEmail}) terdaftar sebagai ${resolvedRole.toUpperCase()}. Tab Admin hanya diperuntukkan bagi Admin Klinik (Fauzan Hamdani). Silakan beralih ke tab ${targetTab}.`,
+            type: 'error'
+          });
+          return;
+        }
+      } else if (activeRoleTab === 'master') {
+        if (resolvedRole !== 'master') {
+          await supabase.auth.signOut();
+          setMessage({
+            text: `Akses Ditolak: Akun (${userEmail}) tidak memiliki hak akses Master IT.`,
+            type: 'error'
+          });
+          return;
+        }
+      } else if (activeRoleTab === 'psikolog') {
+        if (resolvedRole !== 'psikolog') {
+          await supabase.auth.signOut();
+          setMessage({
+            text: `Akses Ditolak: Akun (${userEmail}) bukan akun Psikolog resmi Benang Merah.`,
+            type: 'error'
+          });
+          return;
+        }
+      } else if (activeRoleTab === 'terapis') {
+        if (resolvedRole !== 'terapis') {
+          await supabase.auth.signOut();
+          setMessage({
+            text: `Akses Ditolak: Akun (${userEmail}) bukan akun Terapis resmi Benang Merah.`,
+            type: 'error'
+          });
+          return;
+        }
+      }
+
+      // Sinkronisasi data profile di database (Self-healing jika ada anomali role lama)
+      if (profile && profile.role !== resolvedRole) {
+        try {
+          await supabase.from('profiles').update({ role: resolvedRole }).eq('id', data.user.id);
+        } catch (syncErr) {
+          console.warn('Gagal sinkronisasi role di DB:', syncErr);
+        }
+      }
+
       setMessage({ text: 'Login berhasil! Mengalihkan ke dashboard...', type: 'success' });
       if (onLoginSuccess) onLoginSuccess(data?.session);
     } catch (err) {
+      let errorMsg = 'Password salah atau akun belum diaktifkan. Silakan periksa kembali password Anda.';
+      if (err?.message?.includes('Invalid login credentials')) {
+        errorMsg = 'Kredensial salah: Password yang Anda masukkan tidak cocok dengan akun ini.';
+      } else if (err?.message?.includes('Email not confirmed')) {
+        errorMsg = 'Email akun ini belum dikonfirmasi di Supabase Auth.';
+      } else if (err?.message?.includes('rate limit')) {
+        errorMsg = 'Terlalu banyak percobaan login gagal. Mohon tunggu beberapa saat sebelum mencoba kembali.';
+      } else if (err?.message) {
+        errorMsg = err.message;
+      }
+
       setMessage({
-        text: 'Password salah atau akun belum diaktifkan. Silakan periksa kembali password Anda.',
+        text: errorMsg,
         type: 'error'
       });
     } finally {
@@ -417,15 +506,26 @@ export default function Auth({ onLoginSuccess }) {
               <label className="block font-semibold text-gray-700 mb-1 text-[11px]">
                 Password Master IT
               </label>
-              <input
-                type="password"
-                required
-                autoFocus
-                placeholder="Ketik password master IT..."
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-[#701A24] text-xs font-medium bg-white"
-              />
+              <div className="relative">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  required
+                  autoFocus
+                  placeholder="Ketik password master IT..."
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full pl-3.5 pr-10 py-2.5 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-[#701A24] text-xs font-medium bg-white"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#701A24] transition-colors p-1 cursor-pointer"
+                  title={showPassword ? "Sembunyikan password" : "Lihat password"}
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOffIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
 
             <button
@@ -504,14 +604,25 @@ export default function Auth({ onLoginSuccess }) {
                   <label className="block font-semibold text-gray-700 mb-1 text-[11px]">
                     Password Admin ({selectedUser?.name})
                   </label>
-                  <input
-                    type="password"
-                    required
-                    placeholder="Masukkan password admin..."
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-[#701A24] text-xs font-medium bg-white"
-                  />
+                  <div className="relative">
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      required
+                      placeholder="Masukkan password admin..."
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="w-full pl-3.5 pr-10 py-2.5 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-[#701A24] text-xs font-medium bg-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#701A24] transition-colors p-1 cursor-pointer"
+                      title={showPassword ? "Sembunyikan password" : "Lihat password"}
+                      tabIndex={-1}
+                    >
+                      {showPassword ? <EyeOffIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}
+                    </button>
+                  </div>
                 </div>
 
                 <button
@@ -534,7 +645,7 @@ export default function Auth({ onLoginSuccess }) {
                 <button
                   type="button"
                   onClick={() => setIsRegisterMode(false)}
-                  className="text-gray-500 hover:text-gray-800 text-[11px] font-semibold"
+                  className="text-gray-500 hover:text-gray-800 text-[11px] font-semibold cursor-pointer"
                 >
                   ← Kembali ke Login
                 </button>
@@ -573,27 +684,49 @@ export default function Auth({ onLoginSuccess }) {
                   <label className="block font-semibold text-gray-700 mb-1 text-[11px]">
                     Password
                   </label>
-                  <input
-                    type="password"
-                    required
-                    placeholder="Min 6 karakter"
-                    value={regForm.password}
-                    onChange={(e) => setRegForm({ ...regForm, password: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-xl text-xs outline-none focus:ring-2 focus:ring-[#701A24] bg-white"
-                  />
+                  <div className="relative">
+                    <input
+                      type={showRegPassword ? "text" : "password"}
+                      required
+                      placeholder="Min 6 karakter"
+                      value={regForm.password}
+                      onChange={(e) => setRegForm({ ...regForm, password: e.target.value })}
+                      className="w-full pl-3 pr-8 py-2 border border-gray-300 rounded-xl text-xs outline-none focus:ring-2 focus:ring-[#701A24] bg-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowRegPassword(!showRegPassword)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#701A24] transition-colors p-1 cursor-pointer"
+                      title={showRegPassword ? "Sembunyikan password" : "Lihat password"}
+                      tabIndex={-1}
+                    >
+                      {showRegPassword ? <EyeOffIcon className="w-3.5 h-3.5" /> : <EyeIcon className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
                 </div>
                 <div>
                   <label className="block font-semibold text-gray-700 mb-1 text-[11px]">
                     Ulangi Password
                   </label>
-                  <input
-                    type="password"
-                    required
-                    placeholder="Ketik ulang"
-                    value={regForm.confirmPassword}
-                    onChange={(e) => setRegForm({ ...regForm, confirmPassword: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-xl text-xs outline-none focus:ring-2 focus:ring-[#701A24] bg-white"
-                  />
+                  <div className="relative">
+                    <input
+                      type={showRegConfirmPassword ? "text" : "password"}
+                      required
+                      placeholder="Ketik ulang"
+                      value={regForm.confirmPassword}
+                      onChange={(e) => setRegForm({ ...regForm, confirmPassword: e.target.value })}
+                      className="w-full pl-3 pr-8 py-2 border border-gray-300 rounded-xl text-xs outline-none focus:ring-2 focus:ring-[#701A24] bg-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowRegConfirmPassword(!showRegConfirmPassword)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#701A24] transition-colors p-1 cursor-pointer"
+                      title={showRegConfirmPassword ? "Sembunyikan password" : "Lihat password"}
+                      tabIndex={-1}
+                    >
+                      {showRegConfirmPassword ? <EyeOffIcon className="w-3.5 h-3.5" /> : <EyeIcon className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -647,14 +780,25 @@ export default function Auth({ onLoginSuccess }) {
               <label className="block font-semibold text-gray-700 mb-1 text-[11px]">
                 Password Akses {selectedUser?.name}
               </label>
-              <input
-                type="password"
-                required
-                placeholder="Masukkan password psikolog..."
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-[#701A24] text-xs font-medium bg-white"
-              />
+              <div className="relative">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  required
+                  placeholder="Masukkan password psikolog..."
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full pl-3.5 pr-10 py-2.5 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-[#701A24] text-xs font-medium bg-white"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#701A24] transition-colors p-1 cursor-pointer"
+                  title={showPassword ? "Sembunyikan password" : "Lihat password"}
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOffIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
 
             <button
@@ -722,14 +866,25 @@ export default function Auth({ onLoginSuccess }) {
                   <label className="block font-semibold text-gray-700 mb-1 text-[11px]">
                     Password Terapis ({selectedUser?.name})
                   </label>
-                  <input
-                    type="password"
-                    required
-                    placeholder="Masukkan password terapis..."
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-[#701A24] text-xs font-medium bg-white"
-                  />
+                  <div className="relative">
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      required
+                      placeholder="Masukkan password terapis..."
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="w-full pl-3.5 pr-10 py-2.5 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-[#701A24] text-xs font-medium bg-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#701A24] transition-colors p-1 cursor-pointer"
+                      title={showPassword ? "Sembunyikan password" : "Lihat password"}
+                      tabIndex={-1}
+                    >
+                      {showPassword ? <EyeOffIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}
+                    </button>
+                  </div>
                 </div>
 
                 <button
@@ -752,7 +907,7 @@ export default function Auth({ onLoginSuccess }) {
                 <button
                   type="button"
                   onClick={() => setIsRegisterTherapistMode(false)}
-                  className="text-gray-500 hover:text-gray-800 text-[11px] font-semibold"
+                  className="text-gray-500 hover:text-gray-800 text-[11px] font-semibold cursor-pointer"
                 >
                   ← Kembali ke Login
                 </button>
@@ -803,27 +958,49 @@ export default function Auth({ onLoginSuccess }) {
                   <label className="block font-semibold text-gray-700 mb-1 text-[11px]">
                     Password
                   </label>
-                  <input
-                    type="password"
-                    required
-                    placeholder="Min 6 karakter"
-                    value={regTherapistForm.password}
-                    onChange={(e) => setRegTherapistForm({ ...regTherapistForm, password: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-600 bg-white"
-                  />
+                  <div className="relative">
+                    <input
+                      type={showRegTherapistPassword ? "text" : "password"}
+                      required
+                      placeholder="Min 6 karakter"
+                      value={regTherapistForm.password}
+                      onChange={(e) => setRegTherapistForm({ ...regTherapistForm, password: e.target.value })}
+                      className="w-full pl-3 pr-8 py-2 border border-gray-300 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-600 bg-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowRegTherapistPassword(!showRegTherapistPassword)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-blue-700 transition-colors p-1 cursor-pointer"
+                      title={showRegTherapistPassword ? "Sembunyikan password" : "Lihat password"}
+                      tabIndex={-1}
+                    >
+                      {showRegTherapistPassword ? <EyeOffIcon className="w-3.5 h-3.5" /> : <EyeIcon className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
                 </div>
                 <div>
                   <label className="block font-semibold text-gray-700 mb-1 text-[11px]">
                     Ulangi Password
                   </label>
-                  <input
-                    type="password"
-                    required
-                    placeholder="Ketik ulang"
-                    value={regTherapistForm.confirmPassword}
-                    onChange={(e) => setRegTherapistForm({ ...regTherapistForm, confirmPassword: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-600 bg-white"
-                  />
+                  <div className="relative">
+                    <input
+                      type={showRegTherapistConfirmPassword ? "text" : "password"}
+                      required
+                      placeholder="Ketik ulang"
+                      value={regTherapistForm.confirmPassword}
+                      onChange={(e) => setRegTherapistForm({ ...regTherapistForm, confirmPassword: e.target.value })}
+                      className="w-full pl-3 pr-8 py-2 border border-gray-300 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-600 bg-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowRegTherapistConfirmPassword(!showRegTherapistConfirmPassword)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-blue-700 transition-colors p-1 cursor-pointer"
+                      title={showRegTherapistConfirmPassword ? "Sembunyikan password" : "Lihat password"}
+                      tabIndex={-1}
+                    >
+                      {showRegTherapistConfirmPassword ? <EyeOffIcon className="w-3.5 h-3.5" /> : <EyeIcon className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
                 </div>
               </div>
 
