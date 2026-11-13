@@ -69,7 +69,15 @@ export const THERAPIST_INCENTIVE_SESSION_THRESHOLD = 8; // Per berapa sesi insen
 
 
 // MASTER PETUGAS HANDLE BY ADMIN (MURNI FAUZAN)
-export const ADMIN_HANDLERS = ['Fauzan'];
+export const ADMIN_HANDLERS = [
+  'Fauzan',
+  'Shima',
+  'Silviyah',
+  'Nadifa',
+  'Eka',
+  'Casmi',
+  'Ridho'
+];
 
 // MASTER METODE PEMBAYARAN RESMI
 export const PAYMENT_METHODS = ['QRIS', 'Transfer BCA', 'Cash / Tunai'];
